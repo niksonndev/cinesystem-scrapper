@@ -1,0 +1,27 @@
+{
+  "name": "cinesystem-maceio-scraper",
+  "version": "1.0.0",
+  "description": "Scraper de programação do Cinesystem Maceió (Ingresso.com) para Telegram",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "scrape": "node src/index.js scrape",
+    "check": "node src/index.js check",
+    "telegram": "node src/index.js telegram",
+    "telegram:refresh": "node src/index.js telegram refresh",
+    "install-browsers": "npx playwright install chromium"
+  },
+  "keywords": [
+    "playwright",
+    "scraper",
+    "cinema",
+    "ingresso"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "playwright": "^1.49.0"
+  }
+}
