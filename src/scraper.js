@@ -51,11 +51,88 @@ function isLikelyMovieTitleNode(name) {
 }
 
 /**
- * Extrai programação da página usando Playwright.
+ * Extrai preços de uma sessão clicando no botão de preços
  * @param {import('playwright').Page} page
- * @returns {Promise<{ movies: Array<{ name: string, sessions: string[] }>, raw: string }>}
+ * @param {import('playwright').ElementHandle} button - botão de preço a clicar
+ * @returns {Promise<{ inteira?: number, meia?: number, gratuito: boolean }>}
  */
-export async function extractProgramming(page) {
+async function extractSessionPrice(page, button) {
+  try {
+    // Fecha modal anterior
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(200);
+
+    // Clica no botão
+    await button.click();
+
+    // Espera menos - o modal é rápido
+    await page.waitForTimeout(600);
+
+    const priceData = await page.evaluate(() => {
+      const modals = document.querySelectorAll('[role="dialog"]');
+      if (!modals.length) return { gratuito: true };
+
+      // Procura o modal correto (com Inteira/Meia)
+      let targetModal = null;
+      for (const modal of modals) {
+        const text = modal.innerText || '';
+        if (text.includes('Inteira')) {
+          targetModal = modal;
+          break;
+        }
+      }
+
+      if (!targetModal && modals.length > 0) {
+        for (const modal of modals) {
+          const text = modal.innerText || '';
+          if (!text.includes('Maceió') && text.length > 100) {
+            targetModal = modal;
+            break;
+          }
+        }
+      }
+
+      if (!targetModal) return { gratuito: true };
+
+      const text = targetModal.innerText || '';
+      const prices = {};
+
+      const inteirMatch = text.match(/^Inteira:\s*R\$\s*([\d.,]+)/m);
+      const meiaMatch = text.match(/^Meia:\s*R\$\s*([\d.,]+)/m);
+
+      if (inteirMatch) {
+        const valor = inteirMatch[1].replace(/\./g, '').replace(',', '.');
+        const parsed = parseFloat(valor);
+        if (!isNaN(parsed) && parsed > 0) prices.inteira = parsed;
+      }
+
+      if (meiaMatch) {
+        const valor = meiaMatch[1].replace(/\./g, '').replace(',', '.');
+        const parsed = parseFloat(valor);
+        if (!isNaN(parsed) && parsed > 0) prices.meia = parsed;
+      }
+
+      prices.gratuito = !inteirMatch && !meiaMatch;
+      return prices;
+    });
+
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(150);
+
+    return priceData;
+  } catch (err) {
+    try { await page.keyboard.press('Escape').catch(() => {}); } catch (_) {}
+    return { gratuito: true };
+  }
+}
+
+/**
+ * Extrai programação da página usando Playwright com suporte a preços.
+ * @param {import('playwright').Page} page
+ * @param {boolean} extractPrices - se deve extrair preços (mais lento)
+ * @returns {Promise<{ movies: Array, noSessions: boolean, raw: string }>}
+ */
+export async function extractProgramming(page, extractPrices = false) {
   // Aguarda a página estabilizar (conteúdo dinâmico)
   await page.waitForLoadState('networkidle').catch(() => {});
 
@@ -85,39 +162,6 @@ export async function extractProgramming(page) {
         noSessions: true,
         raw: document.body.innerText.slice(0, 2000),
       };
-    }
-
-    // Estratégia 1: elementos que parecem títulos de filme (h2, h3, [class*="movie"], [class*="title"])
-    const titleSelectors = [
-      'h2[class*="title"], h3[class*="title"]',
-      '[data-testid*="movie"], [data-testid*="title"]',
-      '[class*="movie-title"], [class*="MovieTitle"]',
-      '.movie-title',
-      'h2',
-      'h3',
-    ];
-
-    let titleElements = [];
-    for (const sel of titleSelectors) {
-      try {
-        const el = document.querySelectorAll(sel);
-        if (el.length) titleElements = Array.from(el);
-        if (titleElements.length) break;
-      } catch (_) {}
-    }
-
-    // Estratégia 2: horários (botões, links com horário tipo 14:30, 16:00)
-    const timeRegex = /\b(\d{1,2}:\d{2})\b/g;
-
-    function extractSessionsFromContainer(container) {
-      const text = container ? container.innerText : document.body.innerText;
-      const times = [];
-      let m;
-      while ((m = timeRegex.exec(text)) !== null) {
-        const t = m[1];
-        if (!times.includes(t)) times.push(t);
-      }
-      return times;
     }
 
     // Tentar estrutura: cada filme em um card/container com título + lista de horários
@@ -151,63 +195,36 @@ export async function extractProgramming(page) {
         if (seen.has(key)) continue;
         seen.add(key);
 
-        const sessions = extractSessionsFromContainer(card);
-        movies.push({ name, sessions: [...sessions].sort() });
+        // Extrai horários com IDs de sessão
+        const sessions = [];
+        const links = card.querySelectorAll('a[href*="sessionId"]');
+        for (const link of links) {
+          const href = link.getAttribute('href') || '';
+          const timeEl = link.querySelector('span') || link;
+          const time = (timeEl.textContent || '').trim();
+
+          // Extrai sessionId da URL
+          const sessionMatch = href.match(/sessionId=(\d+)/);
+          const sessionId = sessionMatch ? sessionMatch[1] : null;
+
+          // Validar que é um horário válido
+          if (/^\d{1,2}:\d{2}$/.test(time)) {
+            sessions.push({ time, sessionId });
+          }
+        }
+
+        if (sessions.length > 0) {
+          movies.push({ name, sessions });
+        }
       }
-      // Se encontrou filmes com este seletor, continue verificando com os próximos
-      // em caso de falsos positivos no primeiro seletor
+      // Se encontrou filmes com este seletor, continue verificando
       if (movies.length > 2) break;
     }
 
-    // Filtra filmes válidos (remove UI labels que passaram)
+    // Filtra filmes válidos
     const filtered = movies.filter((m) => isLikelyMovieTitle(m.name));
 
-    // Fallback: pegar todo o texto e tentar extrair pares filme + horários
-    if (filtered.length === 0) {
-      const bodyText = document.body.innerText;
-      const lines = bodyText
-        .split(/\n/)
-        .map((l) => l.trim())
-        .filter(Boolean);
-      let currentMovie = null;
-      for (const line of lines) {
-        if (line.match(/^\d{1,2}:\d{2}(\s|$)/)) {
-          if (currentMovie)
-            currentMovie.sessions.push(line.match(/(\d{1,2}:\d{2})/)[1]);
-        } else if (
-          line.length > 2 &&
-          line.length < 150 &&
-          !line.includes('Ingresso') &&
-          !line.includes('Cinema')
-        ) {
-          if (
-            currentMovie &&
-            (currentMovie.sessions.length || currentMovie.name) &&
-            isLikelyMovieTitle(currentMovie.name)
-          ) {
-            filtered.push({
-              name: currentMovie.name,
-              sessions: [...currentMovie.sessions].sort(),
-            });
-          }
-          currentMovie = { name: line, sessions: [] };
-        }
-      }
-      if (
-        currentMovie &&
-        (currentMovie.sessions.length || currentMovie.name) &&
-        isLikelyMovieTitle(currentMovie.name)
-      ) {
-        filtered.push({
-          name: currentMovie.name,
-          sessions: [...currentMovie.sessions].sort(),
-        });
-      }
-    }
-
-    const final = filtered.length
-      ? filtered
-      : movies.filter((m) => isLikelyMovieTitle(m.name));
+    const final = filtered.length ? filtered : movies;
     return {
       movies: final,
       noSessions: false,
@@ -226,13 +243,19 @@ export async function extractProgramming(page) {
     if (isTypeBlock && merged.length > 0) {
       const last = merged[merged.length - 1];
       const times = item.sessions || [];
-      last.sessions = [...new Set([...(last.sessions || []), ...times])].sort();
+      last.sessions = [
+        ...new Set([...(last.sessions || []), ...times]),
+      ].sort((a, b) => {
+        const timeA = typeof a === 'string' ? a : a.time;
+        const timeB = typeof b === 'string' ? b : b.time;
+        return timeA.localeCompare(timeB);
+      });
     } else if (isLikelyMovieTitleNode(name)) {
       merged.push({ name, sessions: [...(item.sessions || [])].sort() });
     }
   }
 
-  // Se a ordem da página for diferente (tipo antes do título), incluir filmes que tenham só nome
+  // Se a ordem da página for diferente, incluir filmes que tenham só nome
   if (merged.length === 0 && raw.length > 0) {
     for (const item of raw) {
       const name = (item.name || '').trim();
@@ -240,6 +263,58 @@ export async function extractProgramming(page) {
         merged.push({ name, sessions: [...(item.sessions || [])].sort() });
       }
     }
+  }
+
+  // Extrai preços se solicitado (otimizado)
+  if (extractPrices && merged.length > 0) {
+    console.log('Extraindo preços...');
+    let sessionCount = 0;
+    const priceButtons = await page.$$('button[aria-label="Abrir modal de preços"]');
+
+    // Mapeia botão -> sessionId para acesso rápido
+    const buttonToSession = new Map();
+
+    for (const btn of priceButtons) {
+      try {
+        const sessionIds = await btn.evaluate((button) => {
+          const card = button.closest('[class*="bg-ing-neutral-600"]');
+          if (!card) return [];
+          const links = card.querySelectorAll('a[href*="sessionId"]');
+          return Array.from(links).map(link => {
+            const match = link.href.match(/sessionId=(\d+)/);
+            return match ? match[1] : null;
+          }).filter(Boolean);
+        });
+
+        if (sessionIds.length > 0) {
+          for (const sid of sessionIds) {
+            buttonToSession.set(sid, btn);
+          }
+        }
+      } catch (_) {}
+    }
+
+    // Extrai preços usando o mapa
+    for (const movie of merged) {
+      if (!Array.isArray(movie.sessions)) continue;
+
+      for (const session of movie.sessions) {
+        if (typeof session !== 'object') continue;
+        const btn = buttonToSession.get(session.sessionId);
+
+        if (btn) {
+          try {
+            const priceData = await extractSessionPrice(page, btn);
+            session.priceInteira = priceData.inteira;
+            session.priceMeia = priceData.meia;
+            session.gratuito = priceData.gratuito;
+            sessionCount++;
+          } catch (_) {}
+        }
+      }
+    }
+
+    console.log(`✓ ${sessionCount} sessões com preço.`);
   }
 
   return {
@@ -251,7 +326,7 @@ export async function extractProgramming(page) {
 
 /**
  * Abre a página do cinema e extrai a programação.
- * @param {object} options - { headless: boolean, date?: string (DD/MM/YYYY) }
+ * @param {object} options - { headless: boolean, date?: string (DD/MM/YYYY), extractPrices?: boolean }
  * @returns {Promise<{ movies, noSessions, raw, scrapedAt }>}
  */
 export async function scrape(options = {}) {
@@ -274,7 +349,10 @@ export async function scrape(options = {}) {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(2000);
 
-    const { movies, noSessions, raw } = await extractProgramming(page);
+    const { movies, noSessions, raw } = await extractProgramming(
+      page,
+      options.extractPrices === true,
+    );
     await browser.close();
 
     return {

@@ -23,10 +23,19 @@ const subArg = process.argv[3];
 
 async function main() {
   if (command === 'scrape') {
+    const withPrices = subArg === 'prices';
+    const date = withPrices ? process.argv[4] : subArg;
+
     console.log('Extraindo programação...');
-    const result = await scrape({ headless: true, date: subArg });
-    if (subArg) {
-      console.log(`Programação para: ${subArg}`);
+    if (withPrices) console.log('(com extração de preços)');
+
+    const result = await scrape({
+      headless: true,
+      date,
+      extractPrices: withPrices,
+    });
+    if (date && !withPrices) {
+      console.log(`Programação para: ${date}`);
     }
     await saveState({ movies: result.movies, scrapedAt: result.scrapedAt });
     console.log('Salvo em data/state.json');
@@ -34,10 +43,21 @@ async function main() {
     if (result.noSessions)
       console.log('(Página indicou: sem sessões no momento)');
     result.movies.forEach((m) => {
-      console.log(
-        `  - ${m.name}: ${m.sessions.length} sessão(ões)`,
-        m.sessions.length ? m.sessions.join(', ') : '',
-      );
+      const sessionsList = m.sessions
+        .map((s) => {
+          if (typeof s === 'string') return s;
+          let str = s.time || '';
+          if (s.priceInteira !== undefined) {
+            str += ` (R$ ${s.priceInteira.toFixed(2)})`;
+          }
+          if (s.priceMeia !== undefined) {
+            str += ` / meia: R$ ${s.priceMeia.toFixed(2)}`;
+          }
+          return str;
+        })
+        .join(', ');
+      console.log(`  - ${m.name}: ${m.sessions.length} sessão(ões)`);
+      console.log(`    ${sessionsList}`);
     });
     return;
   }
@@ -105,10 +125,21 @@ async function main() {
   if (result.noSessions)
     console.log('(Página indicou: sem sessões no momento)');
   result.movies.forEach((m) => {
-    console.log(
-      `  - ${m.name}: ${m.sessions.length} sessão(ões)`,
-      m.sessions.length ? m.sessions.join(', ') : '',
-    );
+    const sessionsList = m.sessions
+      .map((s) => {
+        if (typeof s === 'string') return s;
+        let str = s.time || '';
+        if (s.priceInteira !== undefined) {
+          str += ` (R$ ${s.priceInteira.toFixed(2)})`;
+        }
+        if (s.priceMeia !== undefined) {
+          str += ` / meia: R$ ${s.priceMeia.toFixed(2)}`;
+        }
+        return str;
+      })
+      .join(', ');
+    console.log(`  - ${m.name}: ${m.sessions.length} sessão(ões)`);
+    console.log(`    ${sessionsList}`);
   });
   console.log('\nMudanças:', diff.summary);
   if (diff.hasChanges) {
