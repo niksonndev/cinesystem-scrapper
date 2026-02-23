@@ -41,7 +41,10 @@ async function extractSessionPrice(page, button) {
     try {
       const priceData = await page.evaluate(() => {
         const modals = document.querySelectorAll('[role="dialog"]');
-        if (!modals.length) return { gratuito: true };
+        if (!modals.length) {
+          console.warn('⚠ DEBUG: Nenhum modal encontrado. Tentando console.log do conteúdo da página...');
+          return { gratuito: true };
+        }
 
         // Procura o modal correto (com Inteira/Meia)
         let targetModal = null;
@@ -100,6 +103,13 @@ async function extractSessionPrice(page, button) {
       if (evalErr.message && evalErr.message.includes('context')) {
         console.warn('⚠ Contexto destruído ao extrair preço');
         return { gratuito: true };
+      }
+      console.warn('⚠ Erro ao avaliar preço. Capturando conteúdo da página para debug...');
+      try {
+        const pageContent = await page.content();
+        console.log('📄 Conteúdo da página (primeiros 1500 caracteres):', pageContent.substring(0, 1500));
+      } catch (contentErr) {
+        console.warn('⚠ Não foi possível capturar conteúdo da página:', contentErr.message);
       }
       throw evalErr;
     }
@@ -190,8 +200,19 @@ async function extractPricesFromPlaywright(apiMovies, options) {
       url += `?date=${options.date}`;
     }
 
-    // Navegar e aguardar a página carregar completamente
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    // Navegar com tratamento para timeout
+    // Tenta networkidle primeiro, fallback para domcontentloaded se der timeout
+    try {
+      console.log('📍 Navegando para página com waitUntil: networkidle...');
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    } catch (timeoutErr) {
+      if (timeoutErr.message && timeoutErr.message.includes('Timeout')) {
+        console.warn('⚠ Timeout com networkidle, tentando com domcontentloaded...');
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      } else {
+        throw timeoutErr;
+      }
+    }
 
     // Aguardar até 10 segundos por botões de preço aparecerem
     // Isso garante que a mudança de data foi processada
@@ -214,6 +235,13 @@ async function extractPricesFromPlaywright(apiMovies, options) {
     if (priceButtons.length === 0 && options.date) {
       console.log('⚠ Aviso: Nenhum botão de preços encontrado.');
       console.log('(Os preços só são disponíveis para sessões de hoje)');
+      console.log('📄 Capturando conteúdo da página para debug...');
+      try {
+        const pageContent = await page.content();
+        console.log('📄 Conteúdo da página (primeiros 2000 caracteres):', pageContent.substring(0, 2000));
+      } catch (contentErr) {
+        console.warn('⚠ Não foi possível capturar conteúdo da página:', contentErr.message);
+      }
     }
 
     // Mapeia sessionId -> button para acesso rápido
