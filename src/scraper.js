@@ -11,9 +11,10 @@ const CINEMA_URL = 'https://www.ingresso.com/cinema/cinesystem-maceio';
  * Extrai preços de uma sessão clicando no botão de preços
  * @param {import('playwright').Page} page
  * @param {import('playwright').ElementHandle} button - botão de preço a clicar
+ * @param {boolean} debugMode - se verdadeiro, pausa para visualização
  * @returns {Promise<{ inteira?: number, meia?: number, gratuito: boolean }>}
  */
-async function extractSessionPrice(page, button) {
+async function extractSessionPrice(page, button, debugMode = false) {
   try {
     // Fecha modal anterior
     try {
@@ -27,8 +28,14 @@ async function extractSessionPrice(page, button) {
       // Clica no botão
       await button.click();
 
-      // Espera o modal aparecer - aumentado para 1s
-      await page.waitForTimeout(1000);
+      // Em modo debug, pausa antes de clicar
+      if (debugMode) {
+        console.log('⏸️  Pausando 2s para visualizar modal... (modo DEBUG)');
+        await page.waitForTimeout(2000);
+      } else {
+        // Espera o modal aparecer - aumentado para 1s
+        await page.waitForTimeout(1000);
+      }
     } catch (clickErr) {
       // Se clicar falhar (contexto destruído), retorna gratuito
       if (clickErr.message && clickErr.message.includes('context')) {
@@ -205,10 +212,22 @@ async function extractPricesFromPlaywright(apiMovies, options) {
     try {
       console.log('📍 Navegando para página com waitUntil: networkidle...');
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+
+      // Em modo debug, pausa 2s para visualizar a página carregada
+      if (options.headless === false) {
+        console.log('⏸️  Pausando 2s para visualizar... (modo DEBUG)');
+        await page.waitForTimeout(2000);
+      }
     } catch (timeoutErr) {
       if (timeoutErr.message && timeoutErr.message.includes('Timeout')) {
         console.warn('⚠ Timeout com networkidle, tentando com domcontentloaded...');
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        // Em modo debug, pausa 2s
+        if (options.headless === false) {
+          console.log('⏸️  Pausando 2s para visualizar... (modo DEBUG)');
+          await page.waitForTimeout(2000);
+        }
       } else {
         throw timeoutErr;
       }
@@ -231,6 +250,10 @@ async function extractPricesFromPlaywright(apiMovies, options) {
     const priceButtons = await page.$$(
       'button[aria-label="Abrir modal de preços"]',
     );
+
+    if (options.headless === false) {
+      console.log(`🔍 DEBUG: Encontrados ${priceButtons.length} botões de preço na página`);
+    }
 
     if (priceButtons.length === 0 && options.date) {
       console.log('⚠ Aviso: Nenhum botão de preços encontrado.');
@@ -279,11 +302,17 @@ async function extractPricesFromPlaywright(apiMovies, options) {
 
         if (btn) {
           try {
-            const priceData = await extractSessionPrice(page, btn);
+            if (options.headless === false) {
+              console.log(`🔍 DEBUG: Processando ${movie.name} - ${session.time}`);
+            }
+            const priceData = await extractSessionPrice(page, btn, options.headless === false);
             session.priceInteira = priceData.inteira;
             session.priceMeia = priceData.meia;
             session.gratuito = priceData.gratuito;
             sessionCount++;
+            if (options.headless === false) {
+              console.log(`  ✓ Extraído: Inteira R$ ${priceData.inteira || 'N/A'}, Meia R$ ${priceData.meia || 'N/A'}`);
+            }
           } catch (err) {
             console.warn(
               `⚠ Erro ao extrair preço da sessão ${session.sessionId}:`,
@@ -295,6 +324,16 @@ async function extractPricesFromPlaywright(apiMovies, options) {
     }
 
     console.log(`✓ ${sessionCount} sessões com preço.`);
+
+    if (options.headless === false) {
+      console.log('\n🔍 RESUMO DO DEBUG:');
+      console.log(`  - Botões encontrados: ${priceButtons.length}`);
+      console.log(`  - Sessões processadas: ${sessionCount}`);
+      console.log(`  - Filmes totais: ${apiMovies.length}`);
+      console.log('  ⏸️  Navegador será fechado em 3 segundos...\n');
+      await page.waitForTimeout(3000);
+    }
+
     await browser.close();
 
     return {

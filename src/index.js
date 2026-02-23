@@ -3,14 +3,17 @@
 /**
  * CLI para scraping de programação do Cinesystem Maceió.
  * Uso:
- *   node src/index.js scrape [data]        → extrai filmes + sessões (API)
- *   node src/index.js scrape prices [data] → extrai filmes + sessões + preços
+ *   node src/index.js scrape [data]              → extrai filmes + sessões (API)
+ *   node src/index.js scrape prices [data]       → extrai filmes + sessões + preços
+ *   node src/index.js scrape prices debug [data] → com navegador visual para debugar
  *
  * Exemplos:
- *   node src/index.js scrape                    → hoje, sem preços (0.1s)
- *   node src/index.js scrape prices            → hoje, com preços (68s)
- *   node src/index.js scrape 23/02/2026         → data específica, sem preços
- *   node src/index.js scrape prices 23/02/2026 → data específica, com preços
+ *   node src/index.js scrape                         → hoje, sem preços (0.1s)
+ *   node src/index.js scrape prices                 → hoje, com preços (68s)
+ *   node src/index.js scrape 23/02/2026             → data específica, sem preços
+ *   node src/index.js scrape prices 23/02/2026      → data específica, com preços
+ *   node src/index.js scrape prices debug           → com navegador visual
+ *   node src/index.js scrape prices debug 23/02/2026 → com navegador visual + data
  */
 
 import { scrape } from './scraper.js';
@@ -28,13 +31,19 @@ async function saveState(data) {
 async function main() {
   if (!command || command === 'scrape') {
     const withPrices = subArg === 'prices';
-    const date = withPrices ? process.argv[4] : subArg;
+    const debugMode = process.argv[4] === 'debug';
+    const date = withPrices
+      ? debugMode
+        ? process.argv[5]
+        : process.argv[4]
+      : subArg;
 
     console.log('Extraindo programação...');
     if (withPrices) console.log('(com extração de preços)');
+    if (debugMode) console.log('🔍 Modo DEBUG: Navegador visual será exibido');
 
     const result = await scrape({
-      headless: true,
+      headless: debugMode ? false : true,
       date,
       extractPrices: withPrices,
     });

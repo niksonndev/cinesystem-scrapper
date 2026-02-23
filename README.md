@@ -1,3 +1,5 @@
+[🤖 Acessar Cinesystem Bot no Telegram](https://t.me/Cinesystemfilmes_bot)
+
 # Cinesystem Maceió - Scraper de Programação
 
 Scraper de programação do [Cinesystem Maceió no Ingresso.com](https://www.ingresso.com/cinema/cinesystem-maceio?city=maceio).
