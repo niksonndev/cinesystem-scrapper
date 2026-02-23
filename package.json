@@ -6,13 +6,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "scrape": "node src/index.js scrape",
-    "check": "node src/index.js check",
-    "telegram": "node src/index.js telegram",
-    "telegram:refresh": "node src/index.js telegram refresh",
-    "bot:listen": "node src/bot.js",
-    "install-browsers": "npx playwright install chromium",
-    "postinstall": "playwright install chromium"
+    "postinstall": "npx playwright install chromium",
+    "bot:listen": "node src/bot.js"
   },
   "keywords": [
     "playwright",
