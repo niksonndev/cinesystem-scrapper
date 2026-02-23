@@ -5,19 +5,15 @@
  * Uso:
  *   node src/index.js scrape [data]        → extrai filmes + sessões (API)
  *   node src/index.js scrape prices [data] → extrai filmes + sessões + preços
- *   node src/index.js telegram [data]      → extrai + envia para Telegram
  *
  * Exemplos:
  *   node src/index.js scrape                    → hoje, sem preços (0.1s)
  *   node src/index.js scrape prices            → hoje, com preços (68s)
  *   node src/index.js scrape 23/02/2026         → data específica, sem preços
  *   node src/index.js scrape prices 23/02/2026 → data específica, com preços
- *   node src/index.js telegram                  → hoje, envia via Telegram
- *   node src/index.js telegram 23/02/2026       → data específica, envia via Telegram
  */
 
 import { scrape } from './scraper.js';
-import TelegramSender from './telegram.js';
 import fs from 'fs/promises';
 
 const command = process.argv[2];
@@ -72,27 +68,6 @@ async function main() {
       console.log(`  - ${m.name}: ${m.sessions.length} sessão(ões)`);
       console.log(`    ${sessionsList}`);
     });
-    return;
-  }
-
-  if (command === 'telegram') {
-    const withPrices = subArg === 'prices';
-
-    console.log('Extraindo programação...');
-    if (withPrices) console.log('(com extração de preços)');
-
-    const result = await scrape({
-      headless: true,
-      extractPrices: withPrices,
-    });
-
-    try {
-      const sender = new TelegramSender();
-      await sender.sendProgramacao(result.movies, result.scrapedAt);
-      console.log('✅ Mensagem enviada para Telegram');
-    } catch (err) {
-      console.error('❌ Erro ao enviar para Telegram:', err.message);
-    }
     return;
   }
 

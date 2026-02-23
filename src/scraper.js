@@ -16,68 +16,95 @@ const CINEMA_URL = 'https://www.ingresso.com/cinema/cinesystem-maceio';
 async function extractSessionPrice(page, button) {
   try {
     // Fecha modal anterior
-    await page.keyboard.press('Escape').catch(() => {});
-    await page.waitForTimeout(200);
+    try {
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(200);
+    } catch (_) {
+      // Contexto pode ter sido destruído, ignora
+    }
 
-    // Clica no botão
-    await button.click();
+    try {
+      // Clica no botão
+      await button.click();
 
-    // Espera menos - o modal é rápido
-    await page.waitForTimeout(600);
-
-    const priceData = await page.evaluate(() => {
-      const modals = document.querySelectorAll('[role="dialog"]');
-      if (!modals.length) return { gratuito: true };
-
-      // Procura o modal correto (com Inteira/Meia)
-      let targetModal = null;
-      for (const modal of modals) {
-        const text = modal.innerText || '';
-        if (text.includes('Inteira')) {
-          targetModal = modal;
-          break;
-        }
+      // Espera o modal aparecer - aumentado para 1s
+      await page.waitForTimeout(1000);
+    } catch (clickErr) {
+      // Se clicar falhar (contexto destruído), retorna gratuito
+      if (clickErr.message && clickErr.message.includes('context')) {
+        console.warn('⚠ Contexto destruído ao clicar no botão de preço');
+        return { gratuito: true };
       }
+      throw clickErr;
+    }
 
-      if (!targetModal && modals.length > 0) {
+    try {
+      const priceData = await page.evaluate(() => {
+        const modals = document.querySelectorAll('[role="dialog"]');
+        if (!modals.length) return { gratuito: true };
+
+        // Procura o modal correto (com Inteira/Meia)
+        let targetModal = null;
         for (const modal of modals) {
           const text = modal.innerText || '';
-          if (!text.includes('Maceió') && text.length > 100) {
+          if (text.includes('Inteira')) {
             targetModal = modal;
             break;
           }
         }
+
+        if (!targetModal && modals.length > 0) {
+          for (const modal of modals) {
+            const text = modal.innerText || '';
+            if (!text.includes('Maceió') && text.length > 100) {
+              targetModal = modal;
+              break;
+            }
+          }
+        }
+
+        if (!targetModal) return { gratuito: true };
+
+        const text = targetModal.innerText || '';
+        const prices = {};
+
+        const inteirMatch = text.match(/^Inteira:\s*R\$\s*([\d.,]+)/m);
+        const meiaMatch = text.match(/^Meia:\s*R\$\s*([\d.,]+)/m);
+
+        if (inteirMatch) {
+          const valor = inteirMatch[1].replace(/\./g, '').replace(',', '.');
+          const parsed = parseFloat(valor);
+          if (!isNaN(parsed) && parsed > 0) prices.inteira = parsed;
+        }
+
+        if (meiaMatch) {
+          const valor = meiaMatch[1].replace(/\./g, '').replace(',', '.');
+          const parsed = parseFloat(valor);
+          if (!isNaN(parsed) && parsed > 0) prices.meia = parsed;
+        }
+
+        prices.gratuito = !inteirMatch && !meiaMatch;
+        return prices;
+      });
+
+      try {
+        await page.keyboard.press('Escape').catch(() => {});
+        await page.waitForTimeout(150);
+      } catch (_) {
+        // Contexto pode ter sido destruído, ok
       }
 
-      if (!targetModal) return { gratuito: true };
-
-      const text = targetModal.innerText || '';
-      const prices = {};
-
-      const inteirMatch = text.match(/^Inteira:\s*R\$\s*([\d.,]+)/m);
-      const meiaMatch = text.match(/^Meia:\s*R\$\s*([\d.,]+)/m);
-
-      if (inteirMatch) {
-        const valor = inteirMatch[1].replace(/\./g, '').replace(',', '.');
-        const parsed = parseFloat(valor);
-        if (!isNaN(parsed) && parsed > 0) prices.inteira = parsed;
+      return priceData;
+    } catch (evalErr) {
+      // Se evaluate falhar (contexto destruído), retorna gratuito
+      if (evalErr.message && evalErr.message.includes('context')) {
+        console.warn('⚠ Contexto destruído ao extrair preço');
+        return { gratuito: true };
       }
-
-      if (meiaMatch) {
-        const valor = meiaMatch[1].replace(/\./g, '').replace(',', '.');
-        const parsed = parseFloat(valor);
-        if (!isNaN(parsed) && parsed > 0) prices.meia = parsed;
-      }
-
-      prices.gratuito = !inteirMatch && !meiaMatch;
-      return prices;
-    });
-
-    await page.keyboard.press('Escape').catch(() => {});
-    await page.waitForTimeout(150);
-
-    return priceData;
+      throw evalErr;
+    }
   } catch (err) {
+    console.warn('⚠ Erro ao extrair preço de sessão:', err.message);
     try {
       await page.keyboard.press('Escape').catch(() => {});
     } catch (_) {}
@@ -113,7 +140,34 @@ export async function scrape(options = {}) {
     };
   }
 
-  // Extrai preços usando Playwright (se solicitado)
+  // Tenta extrair preços com retry em caso de contexto destruído
+  let lastError = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      console.log(`📍 Tentativa ${attempt}/2 de extrair preços...`);
+      return await extractPricesFromPlaywright(apiMovies, options);
+    } catch (err) {
+      lastError = err;
+      if (err.message && err.message.includes('context')) {
+        console.warn(
+          `⚠ Contexto destruído na tentativa ${attempt}, tentando novamente...`,
+        );
+        if (attempt < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 2000)); // Aguarda 2s antes de retry
+          continue;
+        }
+      }
+      throw err;
+    }
+  }
+
+  throw lastError;
+}
+
+/**
+ * Função auxiliar que extrai preços usando Playwright
+ */
+async function extractPricesFromPlaywright(apiMovies, options) {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({
     headless: options.headless !== false,
@@ -135,8 +189,21 @@ export async function scrape(options = {}) {
     if (options.date) {
       url += `?date=${options.date}`;
     }
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForTimeout(2000);
+
+    // Navegar e aguardar a página carregar completamente
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+
+    // Aguardar até 10 segundos por botões de preço aparecerem
+    // Isso garante que a mudança de data foi processada
+    try {
+      await page.waitForSelector('button[aria-label="Abrir modal de preços"]', {
+        timeout: 10000,
+      });
+    } catch (e) {
+      console.log(
+        '⚠ Nenhum seletor de preço encontrado após 10s (pode ser data sem sessões)',
+      );
+    }
 
     // Extrai preços para cada sessão
     let sessionCount = 0;
@@ -189,7 +256,12 @@ export async function scrape(options = {}) {
             session.priceMeia = priceData.meia;
             session.gratuito = priceData.gratuito;
             sessionCount++;
-          } catch (_) {}
+          } catch (err) {
+            console.warn(
+              `⚠ Erro ao extrair preço da sessão ${session.sessionId}:`,
+              err.message,
+            );
+          }
         }
       }
     }
@@ -204,7 +276,9 @@ export async function scrape(options = {}) {
       scrapedAt: new Date().toISOString(),
     };
   } catch (err) {
-    await browser.close();
+    try {
+      await browser.close();
+    } catch (_) {}
     throw err;
   }
 }
