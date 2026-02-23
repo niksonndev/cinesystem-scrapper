@@ -13,6 +13,20 @@ class MovieCache {
   }
 
   /**
+   * Retorna uma data ISO (YYYY-MM-DD) considerando o fuso de Maceió
+   * @param {number} offsetDays - Quantidade de dias a somar (0 = hoje, 1 = amanhã, etc.)
+   */
+  getMaceioISODate(offsetDays = 0) {
+    const now = new Date();
+    // Converte para o horário de Maceió
+    const maceioNow = new Date(
+      now.toLocaleString('en-US', { timeZone: 'America/Maceio' }),
+    );
+    maceioNow.setDate(maceioNow.getDate() + offsetDays);
+    return maceioNow.toISOString().split('T')[0];
+  }
+
+  /**
    * Carrega cache do arquivo
    */
   load() {
@@ -68,7 +82,7 @@ class MovieCache {
     if (forceRefresh) return false;
 
     const cachedDate = this.extractDateFromISO(cached.scrapedAt);
-    const todayDate = new Date().toISOString().split('T')[0];
+    const todayDate = this.getMaceioISODate(0);
 
     return cachedDate === todayDate;
   }
@@ -111,9 +125,7 @@ class MovieCache {
 
     if (!this.isCacheValid(this.cache.amanha, forceRefresh)) {
       const cachedDate = this.extractDateFromISO(this.cache.amanha.scrapedAt);
-      const tomorrowDate = new Date();
-      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-      const tomorrowDateStr = tomorrowDate.toISOString().split('T')[0];
+      const tomorrowDateStr = this.getMaceioISODate(1);
 
       if (forceRefresh) {
         console.log('🔄 Force refresh ativado, buscando dados novos...');

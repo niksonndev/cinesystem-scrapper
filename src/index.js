@@ -1,19 +1,18 @@
 #!/usr/bin/env node
 
 /**
- * CLI para scraping de programação do Cinesystem Maceió.
+ * CLI para consultar a programação do Cinesystem Maceió via API oficial.
+ *
  * Uso:
- *   node src/index.js scrape [data]  → extrai filmes + sessões + preços
+ *   node src/index.js [data]
  *
  * Exemplos:
- *   node src/index.js scrape                  → hoje
- *   node src/index.js scrape 23/02/2026       → data específica
+ *   node src/index.js                 → hoje (segundo API / fuso de Maceió)
+ *   node src/index.js 23/02/2026      → data específica (DD/MM/YYYY)
  */
 
-import { scrape } from './scraper.js';
 import fs from 'fs/promises';
-
-const command = process.argv[2];
+import { getMoviesWithPrices } from './api.js';
 
 async function saveState(data) {
   const stateFile = 'data/state.json';
@@ -22,47 +21,44 @@ async function saveState(data) {
 }
 
 async function main() {
-  if (!command || command === 'scrape') {
-    const date = process.argv[3];
+  const date = process.argv[2] || null;
 
-    console.log('Extraindo programação...');
-    if (date) console.log(`📅 Data: ${date}`);
+  console.log('📡 Consultando programação do Cinesystem Maceió via API...');
+  if (date) {
+    console.log(`📅 Data solicitada: ${date} (DD/MM/YYYY)`);
+  } else {
+    console.log('📅 Nenhuma data informada, usando data atual da API.');
+  }
 
-    const result = await scrape({
-      date,
-    });
+  const movies = await getMoviesWithPrices(date);
+  const scrapedAt = new Date().toISOString();
 
-    await saveState({ movies: result.movies, scrapedAt: result.scrapedAt });
-    console.log('✅ Salvo em data/state.json');
-    console.log(`📽️  Filmes: ${result.movies.length}`);
+  await saveState({ movies, scrapedAt });
+  console.log('✅ Resultado salvo em data/state.json');
+  console.log(`📽️  Filmes: ${movies.length}`);
 
-    if (result.noSessions) {
-      console.log('⚠️  Nenhuma sessão encontrada para esta data');
-    }
-
-    result.movies.forEach((m) => {
-      const sessionsList = m.sessions
-        .map((s) => {
-          if (typeof s === 'string') return s;
-          let str = s.time || '';
-          if (s.priceInteira !== undefined) {
-            str += ` (R$ ${s.priceInteira.toFixed(2)})`;
-          }
-          if (s.priceMeia !== undefined) {
-            str += ` / meia: R$ ${s.priceMeia.toFixed(2)}`;
-          }
-          return str;
-        })
-        .join(', ');
-      console.log(`  🎬 ${m.name}: ${m.sessions.length} sessão(ões)`);
-      console.log(`     ${sessionsList}`);
-    });
+  if (!movies || movies.length === 0) {
+    console.log('⚠️  Nenhuma sessão encontrada para esta data');
     return;
   }
 
-  console.error(`❌ Comando desconhecido: ${command}`);
-  console.error('Use: node src/index.js scrape [data]');
-  process.exit(1);
+  movies.forEach((m) => {
+    const sessionsList = (m.sessions || [])
+      .map((s) => {
+        if (typeof s === 'string') return s;
+        let str = s.time || '';
+        if (s.priceInteira !== undefined && s.priceInteira !== null) {
+          str += ` (R$ ${Number(s.priceInteira).toFixed(2)})`;
+        }
+        if (s.priceMeia !== undefined && s.priceMeia !== null) {
+          str += ` / meia: R$ ${Number(s.priceMeia).toFixed(2)})`;
+        }
+        return str;
+      })
+      .join(', ');
+    console.log(`  🎬 ${m.name}: ${(m.sessions || []).length} sessão(ões)`);
+    console.log(`     ${sessionsList}`);
+  });
 }
 
 main().catch((err) => {
