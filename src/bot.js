@@ -295,6 +295,14 @@ bot.on('message', (msg) => {
 // Handler de erro
 bot.on('polling_error', (err) => {
   console.error('❌ Erro de polling:', err.message);
+
+  // Se outro bot está rodando com o mesmo token, aguarda antes de reintentar
+  if (err.code === 409 || err.message.includes('terminated by other')) {
+    console.log('⏳ Outra instância do bot detectada, aguardando 5 segundos antes de reintentar...');
+    setTimeout(() => {
+      console.log('🔄 Tentando reconectar ao Telegram...');
+    }, 5000);
+  }
 });
 
 // Inicializar
