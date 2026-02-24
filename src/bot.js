@@ -99,38 +99,36 @@ const formatMoviesForTelegram = (movies, dateStr) => {
   let message = `*🎬 PROGRAMAÇÃO - CINESYSTEM MACEIÓ*\n`;
   message += `📅 Data: ${dataPt}\n\n`;
 
+  const FORMAT_ICONS = { '2D': '🎞', 'Cinépic': '🖥', 'VIP': '⭐' };
+
   movies.forEach((filme) => {
     message += `*🎭 ${filme.name}*\n`;
 
-    if (filme.sessions && filme.sessions.length > 0) {
-      // Pegar apenas a 1ª sessão com preço válido para referência
-      const firstSessionWithPrice = filme.sessions.find(
-        (s) => s.gratuito || s.priceInteira,
-      );
+    if (!filme.sessions || filme.sessions.length === 0) {
+      message += '\n';
+      return;
+    }
 
-      if (firstSessionWithPrice) {
-        let priceInfo = '';
-        if (firstSessionWithPrice.gratuito) {
-          priceInfo = 'Gratuito ✨';
-        } else if (firstSessionWithPrice.priceInteira) {
-          const preco = firstSessionWithPrice.priceInteira
-            .toFixed(2)
-            .replace('.', ',');
-          priceInfo = `💰 R$ ${preco}`;
-        } else {
-          priceInfo = '(preço não disponível)';
-        }
+    const byFormat = new Map();
+    for (const s of filme.sessions) {
+      const key = s.format || '2D';
+      if (!byFormat.has(key)) byFormat.set(key, []);
+      byFormat.get(key).push(s);
+    }
 
-        // Listar todos os horários
-        const times = filme.sessions.map((s) => s.time).join(', ');
-        message += `   *Sessões:* ${times}\n`;
-        message += `   *Preço:* ${priceInfo}\n`;
-      } else {
-        // Nenhuma sessão com preço
-        const times = filme.sessions.map((s) => s.time).join(', ');
-        message += `   *Sessões:* ${times}\n`;
-        message += `   *Preço:* (não disponível)\n`;
+    for (const [format, sessions] of byFormat) {
+      const icon = FORMAT_ICONS[format] || '🎬';
+      const times = sessions.map((s) => s.time).join(', ');
+
+      const ref = sessions.find((s) => s.priceInteira);
+      let priceTag = '';
+      if (ref?.gratuito) {
+        priceTag = ' — Gratuito ✨';
+      } else if (ref?.priceInteira) {
+        priceTag = ` — R$ ${ref.priceInteira.toFixed(2).replace('.', ',')}`;
       }
+
+      message += `   ${icon} *${format}:* ${times}${priceTag}\n`;
     }
 
     message += '\n';
