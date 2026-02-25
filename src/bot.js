@@ -31,8 +31,8 @@ const cache = new NormalizedCache();
 
 const CINEMAS = [
   { id: '1162', name: 'Cinesystem', label: 'Cinesystem (Parque Shopping Maceió)' },
-  { id: '1144', name: 'Centerplex', label: 'Centerplex (Shopping Pátio Maceió)' },
-  { id: '368', name: 'Kinoplex', label: 'Kinoplex (Maceió Shopping)' },
+  { id: '1230', name: 'Centerplex', label: 'Centerplex (Shopping Pátio Maceió)' },
+  { id: '924', name: 'Kinoplex', label: 'Kinoplex (Maceió Shopping)' },
 ];
 
 // Preferência de cinema por usuário (chatId → theaterId)

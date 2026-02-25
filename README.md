@@ -74,7 +74,6 @@ A saída é salva em `data/state.json`.
 ```
 src/
 ├── api.js       # Cliente da API Ingresso.com (axios)
-├── scraper.js   # Wrapper de orquestração sobre a API
 ├── cache.js     # Cache em arquivo JSON com expiração diária
 ├── bot.js       # Bot Telegram (polling + Express)
 └── index.js     # CLI
@@ -87,11 +86,6 @@ src/
 - Busca eventos (filmes) e sessões com preços por filme
 - Filtra sessões pelo ID do Cinesystem Maceió (`1162`)
 - Deduplica filmes por nome
-
-### `scraper.js` — Orquestração
-
-- Wrapper fino sobre `api.js`
-- Retorna `{ movies, noSessions, scrapedAt }`
 
 ### `cache.js` — Cache Diário
 
