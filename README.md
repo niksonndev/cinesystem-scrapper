@@ -1,76 +1,118 @@
-[🤖 Acessar Cinesystem Bot no Telegram](https://t.me/Cinesystemfilmes_bot)
+[Acessar Cinesystem Bot no Telegram](https://t.me/Cinesystemfilmes_bot)
 
-# Cinesystem Maceió - Scraper de Programação
+# Cinesystem Maceió - Bot & Scraper
 
-Scraper de programação do [Cinesystem Maceió no Ingresso.com](https://www.ingresso.com/cinema/cinesystem-maceio?city=maceio).
+Bot Telegram + CLI que consulta a programação do [Cinesystem Maceió](https://www.ingresso.com/cinema/cinesystem-maceio?city=maceio) usando a API pública do Ingresso.com.
 
-Extrai filmes, horários e preços (inteira + meia) usando **arquitetura híbrida**:
+Extrai filmes, horários e preços (inteira + meia) diretamente via API — sem browser headless, sem Playwright.
 
-- 🚀 **API** para filmes + horários (rápido: 0.1s)
-- 🎯 **Playwright** para preços dinâmicos (quando solicitado: 68s)
+## Funcionalidades
 
-## Características
-
-✅ **Filmes + Sessões via API** - Rápido e confiável
-✅ **Preços (inteira/meia)** - Extraídos dinamicamente
-✅ **Suporte a datas** - Consulte programação específica
-✅ **JSON estruturado** - Fácil de processar
-✅ **Sem autenticação** - API pública
+- **Filmes, sessões e preços via API** — respostas em menos de 1 segundo
+- **Bot Telegram interativo** — botões inline para hoje e amanhã
+- **Cache diário** — evita requisições repetidas no mesmo dia (expira à meia-noite de Maceió)
+- **CLI** — consulta rápida pelo terminal com saída JSON
+- **Docker-ready** — imagem leve (`node:20-slim`)
 
 ## Requisitos
 
 - Node.js 18+
-- npm ou yarn
+- Token de bot Telegram (via [@BotFather](https://t.me/BotFather))
 
 ## Instalação
 
 ```bash
-cd cinesystem-scraper
+git clone <repo-url>
+cd cinesystem-scrapper
 npm install
-npx playwright install chromium
+cp .env.example .env
+# Edite .env e configure TELEGRAM_BOT_TOKEN
 ```
 
 ## Uso
 
-### Comando Básico
+### Bot Telegram
 
 ```bash
-node src/index.js scrape [precio] [data]
+npm run bot:listen
 ```
 
-### Exemplos
+O bot inicia com:
 
-#### 1. **Filmes + Horários (sem preços)** - Rápido
+- Health check na porta 3000 (configurável via `PORT`)
+- Polling contínuo para receber comandos do Telegram
+- Cache automático por dia (fuso de Maceió)
+
+#### Comandos do Bot
+
+| Comando / Botão | Descrição |
+| --- | --- |
+| `/start` | Menu principal com botões inline |
+| `/atualizar` | Busca dados novos ignorando o cache |
+| Filmes de Hoje | Lista filmes de hoje com preços |
+| Filmes de Amanhã | Lista filmes de amanhã com preços |
+| Como Funciona | Informações sobre o bot |
+
+### CLI
 
 ```bash
-node src/index.js scrape
-# Output: 15 filmes em ~0.1 segundos
+npm start                    # Programação de hoje
+npm start -- 25/02/2026     # Data específica (DD/MM/YYYY)
 ```
 
-#### 2. **Filmes + Horários + Preços** - Completo
+A saída é salva em `data/state.json`.
 
-```bash
-node src/index.js scrape prices
-# Output: 15 filmes + 32 sessões com preços em ~68 segundos
+## Variáveis de Ambiente
+
+| Variável | Obrigatória | Padrão | Descrição |
+| --- | --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | Sim | — | Token do bot obtido via @BotFather |
+| `PORT` | Não | `3000` | Porta do servidor Express (health check) |
+
+## Arquitetura
+
+```
+src/
+├── api.js       # Cliente da API Ingresso.com (axios)
+├── scraper.js   # Wrapper de orquestração sobre a API
+├── cache.js     # Cache em arquivo JSON com expiração diária
+├── bot.js       # Bot Telegram (polling + Express)
+└── index.js     # CLI
 ```
 
-#### 3. **Data Específica** (sem preços)
+### `api.js` — Cliente da API
 
-```bash
-node src/index.js scrape 23/02/2026
-# Output: programação para 23 de fevereiro
-```
+- Consulta `https://api-content.ingresso.com`
+- Resolve automaticamente a data disponível no cinema
+- Busca eventos (filmes) e sessões com preços por filme
+- Filtra sessões pelo ID do Cinesystem Maceió (`1162`)
+- Deduplica filmes por nome
 
-#### 4. **Data + Preços**
+### `scraper.js` — Orquestração
 
-```bash
-node src/index.js scrape prices 23/02/2026
-# Nota: Preços só estão disponíveis para hoje (Ingresso.com)
-```
+- Wrapper fino sobre `api.js`
+- Retorna `{ movies, noSessions, scrapedAt }`
 
-## Saída
+### `cache.js` — Cache Diário
 
-Os dados são salvos em `data/state.json`:
+- Armazena resultados em `data/movies-cache.json`
+- Mantém cache separado para "hoje" e "amanhã"
+- Expira automaticamente na virada do dia (fuso `America/Maceio`)
+
+### `bot.js` — Bot Telegram
+
+- Modo polling (sem webhook)
+- Express server para health check
+- Inline keyboard com opções de hoje / amanhã / info
+- Comando `/atualizar` para forçar refresh
+
+### `index.js` — CLI
+
+- Aceita data opcional como argumento (`DD/MM/YYYY`)
+- Salva resultado em `data/state.json`
+- Exibe programação formatada no terminal
+
+## Saída JSON
 
 ```json
 {
@@ -92,113 +134,37 @@ Os dados são salvos em `data/state.json`:
 }
 ```
 
-## Arquitetura
-
-### `src/api.js` - Cliente da API Ingresso
-
-- Acessa `https://api-content.ingresso.com`
-- Descomprime respostas (gzip/deflate/brotli)
-- Deduplica filmes por nome
-- Filtra por data ou retorna apenas hoje
-
-### `src/scraper.js` - Orquestração
-
-- Obtém filmes + sessões via API
-- Se `extractPrices=true`, abre Playwright para extrair preços do modal
-- Retorna dados estruturados
-
-### `src/index.js` - CLI
-
-- Interface de linha de comando
-- Salva resultado em JSON
-- Exibe programação formatada
-
-## Performance
-
-| Operação                | Tempo  | Nota                             |
-| ----------------------- | ------ | -------------------------------- |
-| Filmes + Sessões (API)  | ~0.1s  | Muito rápido                     |
-| Com Preços (Playwright) | ~68s   | Necessário para preços dinâmicos |
-| Mudança de data         | +5-10s | Dependendo de filmes disponíveis |
-
-## Limitações
-
-- ⚠️ **Preços para datas futuras**: O site não exibe botões de preço para datas além de hoje
-- ⚠️ **Sessões ausentes**: Se o site mostrar "Sem sessões", retorna lista vazia
-
-## Desenvolvimento
-
-O código está organizado de forma limpa com funções bem definidas:
-
-- **API requests** com suporte a compressão
-- **Deduplicação** automática de filmes
-- **Extração dinâmica** de preços via DOM evaluation
-- **Tratamento de erros** robusto
-
-## Bot Telegram
-
-Um bot interativo que fornece acesso à programação de filmes via Telegram.
-
-### Usar Localmente
+## Docker
 
 ```bash
-npm run bot:listen
+docker build -t cinesystem-bot .
+docker run -e TELEGRAM_BOT_TOKEN=seu_token cinesystem-bot
 ```
 
-O bot iniciará com:
-
-- ✅ Health check na porta 3000 (ou PORT env)
-- 🤖 Polling contínuo para receber comandos
-- 🎬 Botões para filmes de hoje e amanhã
-- 💰 Extração automática de preços
-
-### Comandos Disponíveis
-
-- `/start` - Menu principal com botões
-- 🎬 Filmes de Hoje - Lista filmes de hoje com preços
-- 📅 Filmes de Amanhã - Lista filmes de amanhã com preços
-- ❓ Como Funciona - Informações do bot
+O Dockerfile usa `node:20-slim` e executa `npm run bot:listen`.
 
 ## Deploy no Render
 
-### Pré-requisitos
-
-1. Conta no [Render.com](https://render.com)
-2. Token do Bot Telegram (de @BotFather)
-
-### Passos
-
-1. **Conectar repositório Git ao Render**
-   - Novo "Web Service"
-   - Selecionar seu repositório GitHub
-
-2. **Configurar Build Command**
-
-   ```
-   npm run install-browsers
-   ```
-
-3. **Configurar Start Command**
-
-   ```
-   npm run bot:listen
-   ```
-
-4. **Adicionar Environment Variables**
-
-   ```
-   TELEGRAM_BOT_TOKEN=sua_token_aqui
-   ```
-
-5. **Deploy**
-   - Render detecará automaticamente PORT (default 3000)
-   - Bot iniciará e ficará online 24/7
+1. Criar um **Web Service** conectado ao repositório GitHub
+2. **Build Command:** `npm ci`
+3. **Start Command:** `npm run bot:listen`
+4. **Environment Variables:** configurar `TELEGRAM_BOT_TOKEN`
+5. Render detecta `PORT` automaticamente (padrão `3000`)
 
 ### Verificar Status
 
-- GET `https://seu-app.render.com/` deve retornar JSON com status
-- Teste o bot no Telegram enviando `/start`
+- `GET https://seu-app.render.com/` retorna JSON com status do bot
+- Teste enviando `/start` ao bot no Telegram
 
-## Autor
+## Dependências
 
-Scraper construído com Playwright + Node.js nativo (sem dependências desnecessárias).
+| Pacote | Uso |
+| --- | --- |
+| `axios` | Requisições HTTP para API do Ingresso.com |
+| `node-telegram-bot-api` | Integração com a API do Telegram |
+| `express` | Servidor HTTP para health check |
+| `dotenv` | Carregamento de variáveis de ambiente |
+
+## Licença
+
+MIT
