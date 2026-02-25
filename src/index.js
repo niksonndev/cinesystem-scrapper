@@ -6,6 +6,7 @@ import 'dotenv/config';
  * Uso:
  *   node src/index.js           → scrape, salva estado, mostra mudanças
  *   node src/index.js scrape    → só extrai e salva (sem rotacionar previous)
+ *   node src/index.js scrape DD/MM/YYYY → extrai para data específica
  *   node src/index.js check     → só compara estado atual com previous (sem scrape)
  *   node src/index.js telegram  → envia programação do dia para o Telegram (usa state salvo)
  *   node src/index.js telegram refresh → faz scrape, salva e envia para o Telegram
@@ -23,13 +24,20 @@ const subArg = process.argv[3];
 async function main() {
   if (command === 'scrape') {
     console.log('Extraindo programação...');
-    const result = await scrape({ headless: true });
+    const result = await scrape({ headless: true, date: subArg });
+    if (subArg) {
+      console.log(`Programação para: ${subArg}`);
+    }
     await saveState({ movies: result.movies, scrapedAt: result.scrapedAt });
     console.log('Salvo em data/state.json');
     console.log('Filmes:', result.movies.length);
-    if (result.noSessions) console.log('(Página indicou: sem sessões no momento)');
-    result.movies.forEach(m => {
-      console.log(`  - ${m.name}: ${m.sessions.length} sessão(ões)`, m.sessions.length ? m.sessions.join(', ') : '');
+    if (result.noSessions)
+      console.log('(Página indicou: sem sessões no momento)');
+    result.movies.forEach((m) => {
+      console.log(
+        `  - ${m.name}: ${m.sessions.length} sessão(ões)`,
+        m.sessions.length ? m.sessions.join(', ') : '',
+      );
     });
     return;
   }
@@ -38,15 +46,20 @@ async function main() {
     const current = await loadState();
     const previous = await loadPrevious();
     if (!current) {
-      console.log('Nenhum estado salvo. Rode primeiro: node src/index.js scrape');
+      console.log(
+        'Nenhum estado salvo. Rode primeiro: node src/index.js scrape',
+      );
       return;
     }
     const diff = detectChanges(previous, current);
     console.log('Mudanças:', diff.summary);
     if (diff.addedMovies.length) console.log('Filmes novos:', diff.addedMovies);
-    if (diff.removedMovies.length) console.log('Filmes removidos:', diff.removedMovies);
-    if (diff.addedSessions.length) console.log('Sessões adicionadas:', diff.addedSessions);
-    if (diff.removedSessions.length) console.log('Sessões removidas:', diff.removedSessions);
+    if (diff.removedMovies.length)
+      console.log('Filmes removidos:', diff.removedMovies);
+    if (diff.addedSessions.length)
+      console.log('Sessões adicionadas:', diff.addedSessions);
+    if (diff.removedSessions.length)
+      console.log('Sessões removidas:', diff.removedSessions);
     return;
   }
 
@@ -62,7 +75,9 @@ async function main() {
       state = await loadState();
     }
     if (!state) {
-      console.error('Nenhum estado salvo. Rode: node src/index.js scrape   ou   node src/index.js telegram refresh');
+      console.error(
+        'Nenhum estado salvo. Rode: node src/index.js scrape   ou   node src/index.js telegram refresh',
+      );
       process.exit(2);
     }
     const result = await sendProgramacao(state);
@@ -82,22 +97,29 @@ async function main() {
   const current = { movies: result.movies, scrapedAt: result.scrapedAt };
 
   await rotateState(current);
-  const diff = detectChanges(
-    previous ? { movies: previous.movies } : null,
-    { movies: result.movies },
-  );
+  const diff = detectChanges(previous ? { movies: previous.movies } : null, {
+    movies: result.movies,
+  });
 
   console.log('Resultado:', result.movies.length, 'filme(s)');
-  if (result.noSessions) console.log('(Página indicou: sem sessões no momento)');
-  result.movies.forEach(m => {
-    console.log(`  - ${m.name}: ${m.sessions.length} sessão(ões)`, m.sessions.length ? m.sessions.join(', ') : '');
+  if (result.noSessions)
+    console.log('(Página indicou: sem sessões no momento)');
+  result.movies.forEach((m) => {
+    console.log(
+      `  - ${m.name}: ${m.sessions.length} sessão(ões)`,
+      m.sessions.length ? m.sessions.join(', ') : '',
+    );
   });
   console.log('\nMudanças:', diff.summary);
   if (diff.hasChanges) {
-    if (diff.addedMovies.length) console.log('  Filmes novos:', diff.addedMovies);
-    if (diff.removedMovies.length) console.log('  Filmes removidos:', diff.removedMovies);
-    if (diff.addedSessions.length) console.log('  Sessões adicionadas:', diff.addedSessions);
-    if (diff.removedSessions.length) console.log('  Sessões removidas:', diff.removedSessions);
+    if (diff.addedMovies.length)
+      console.log('  Filmes novos:', diff.addedMovies);
+    if (diff.removedMovies.length)
+      console.log('  Filmes removidos:', diff.removedMovies);
+    if (diff.addedSessions.length)
+      console.log('  Sessões adicionadas:', diff.addedSessions);
+    if (diff.removedSessions.length)
+      console.log('  Sessões removidas:', diff.removedSessions);
   }
 
   // Para automação: exit code 0 = sem mudanças, 1 = houve mudanças (ex.: notificação)

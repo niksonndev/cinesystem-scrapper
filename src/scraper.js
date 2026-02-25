@@ -3,7 +3,7 @@
  * Extrai filmes e horários de sessão da página.
  */
 
-const CINEMA_URL = 'https://www.ingresso.com/cinema/cinesystem-maceio?city=maceio';
+const CINEMA_URL = 'https://www.ingresso.com/cinema/cinesystem-maceio';
 
 /** Padrões que não são nomes de filme (usado pós-extração no Node) */
 const SKIP_PATTERNS = [
@@ -38,6 +38,7 @@ const SKIP_PATTERNS = [
   /^formas de pagamento|crédito|débito|troque seus pontos|selo do consumidor/i,
   /^ver todos?$/i,
   /^movieid\.com$/i,
+  /^venda ingressos online$/i,
 ];
 
 function isLikelyMovieTitleNode(name) {
@@ -65,7 +66,8 @@ export async function extractProgramming(page) {
       if (/^\d{1,2}:\d{2}/.test(n)) return false;
       if (/^\d+h\d{2}$/i.test(n)) return false;
       if (/^(seg|ter|qua|qui|sex|sáb|dom|hoje)$/i.test(n)) return false;
-      if (/^(dublado|legendado|nacional|vip|normal|cinepic)$/i.test(n)) return false;
+      if (/^(dublado|legendado|nacional|vip|normal|cinepic)$/i.test(n))
+        return false;
       if (/^\d{1,2}\/\d{1,2}$/.test(n)) return false;
       return true;
     }
@@ -74,9 +76,15 @@ export async function extractProgramming(page) {
     const seen = new Set();
 
     // Mensagem de "sem sessões"
-    const noSessions = document.body.innerText.includes('Ainda não temos sessões');
+    const noSessions = document.body.innerText.includes(
+      'Ainda não temos sessões',
+    );
     if (noSessions) {
-      return { movies: [], noSessions: true, raw: document.body.innerText.slice(0, 2000) };
+      return {
+        movies: [],
+        noSessions: true,
+        raw: document.body.innerText.slice(0, 2000),
+      };
     }
 
     // Estratégia 1: elementos que parecem títulos de filme (h2, h3, [class*="movie"], [class*="title"])
@@ -85,7 +93,8 @@ export async function extractProgramming(page) {
       '[data-testid*="movie"], [data-testid*="title"]',
       '[class*="movie-title"], [class*="MovieTitle"]',
       '.movie-title',
-      'h2', 'h3',
+      'h2',
+      'h3',
     ];
 
     let titleElements = [];
@@ -113,6 +122,7 @@ export async function extractProgramming(page) {
 
     // Tentar estrutura: cada filme em um card/container com título + lista de horários
     const cardSelectors = [
+      '[class*="bg-ing-neutral-600"]', // Seletor correto para a estrutura atual do Ingresso
       '[class*="movie-card"], [class*="MovieCard"]',
       '[class*="session-card"], [class*="SessionCard"]',
       '[data-testid*="movie"], [data-testid*="session"]',
@@ -126,11 +136,14 @@ export async function extractProgramming(page) {
       if (cards.length < 2) continue;
 
       for (const card of cards) {
-        const titleEls = card.querySelectorAll('h2, h3, h4, [class*="title"], [class*="Title"]');
+        const titleEls = card.querySelectorAll(
+          'h2, h3, h4, [class*="title"], [class*="Title"]',
+        );
         let name = '';
         for (const el of titleEls) {
           const t = (el.textContent || '').trim();
-          if (t && isLikelyMovieTitle(t) && t.length > (name.length || 0)) name = t;
+          if (t && isLikelyMovieTitle(t) && t.length > (name.length || 0))
+            name = t;
         }
         if (!name) continue;
 
@@ -141,33 +154,60 @@ export async function extractProgramming(page) {
         const sessions = extractSessionsFromContainer(card);
         movies.push({ name, sessions: [...sessions].sort() });
       }
-      if (movies.length) break;
+      // Se encontrou filmes com este seletor, continue verificando com os próximos
+      // em caso de falsos positivos no primeiro seletor
+      if (movies.length > 2) break;
     }
 
     // Filtra filmes válidos (remove UI labels que passaram)
-    const filtered = movies.filter(m => isLikelyMovieTitle(m.name));
+    const filtered = movies.filter((m) => isLikelyMovieTitle(m.name));
 
     // Fallback: pegar todo o texto e tentar extrair pares filme + horários
     if (filtered.length === 0) {
       const bodyText = document.body.innerText;
-      const lines = bodyText.split(/\n/).map(l => l.trim()).filter(Boolean);
+      const lines = bodyText
+        .split(/\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
       let currentMovie = null;
       for (const line of lines) {
         if (line.match(/^\d{1,2}:\d{2}(\s|$)/)) {
-          if (currentMovie) currentMovie.sessions.push(line.match(/(\d{1,2}:\d{2})/)[1]);
-        } else if (line.length > 2 && line.length < 150 && !line.includes('Ingresso') && !line.includes('Cinema')) {
-          if (currentMovie && (currentMovie.sessions.length || currentMovie.name) && isLikelyMovieTitle(currentMovie.name)) {
-            filtered.push({ name: currentMovie.name, sessions: [...currentMovie.sessions].sort() });
+          if (currentMovie)
+            currentMovie.sessions.push(line.match(/(\d{1,2}:\d{2})/)[1]);
+        } else if (
+          line.length > 2 &&
+          line.length < 150 &&
+          !line.includes('Ingresso') &&
+          !line.includes('Cinema')
+        ) {
+          if (
+            currentMovie &&
+            (currentMovie.sessions.length || currentMovie.name) &&
+            isLikelyMovieTitle(currentMovie.name)
+          ) {
+            filtered.push({
+              name: currentMovie.name,
+              sessions: [...currentMovie.sessions].sort(),
+            });
           }
           currentMovie = { name: line, sessions: [] };
         }
       }
-      if (currentMovie && (currentMovie.sessions.length || currentMovie.name) && isLikelyMovieTitle(currentMovie.name)) {
-        filtered.push({ name: currentMovie.name, sessions: [...currentMovie.sessions].sort() });
+      if (
+        currentMovie &&
+        (currentMovie.sessions.length || currentMovie.name) &&
+        isLikelyMovieTitle(currentMovie.name)
+      ) {
+        filtered.push({
+          name: currentMovie.name,
+          sessions: [...currentMovie.sessions].sort(),
+        });
       }
     }
 
-    const final = filtered.length ? filtered : movies.filter(m => isLikelyMovieTitle(m.name));
+    const final = filtered.length
+      ? filtered
+      : movies.filter((m) => isLikelyMovieTitle(m.name));
     return {
       movies: final,
       noSessions: false,
@@ -180,7 +220,9 @@ export async function extractProgramming(page) {
   const merged = [];
   for (const item of raw) {
     const name = (item.name || '').trim();
-    const isTypeBlock = /^(dublado|legendado|nacional|vip|normal|cinepic)$/i.test(name) && (item.sessions || []).length > 0;
+    const isTypeBlock =
+      /^(dublado|legendado|nacional|vip|normal|cinepic)$/i.test(name) &&
+      (item.sessions || []).length > 0;
     if (isTypeBlock && merged.length > 0) {
       const last = merged[merged.length - 1];
       const times = item.sessions || [];
@@ -209,20 +251,27 @@ export async function extractProgramming(page) {
 
 /**
  * Abre a página do cinema e extrai a programação.
- * @param {object} options - { headless: boolean }
+ * @param {object} options - { headless: boolean, date?: string (DD/MM/YYYY) }
  * @returns {Promise<{ movies, noSessions, raw, scrapedAt }>}
  */
 export async function scrape(options = {}) {
   const { chromium } = await import('playwright');
-  const browser = await chromium.launch({ headless: options.headless !== false });
+  const browser = await chromium.launch({
+    headless: options.headless !== false,
+  });
   const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     viewport: { width: 1280, height: 720 },
   });
 
   try {
     const page = await context.newPage();
-    await page.goto(CINEMA_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    let url = CINEMA_URL;
+    if (options.date) {
+      url += `?date=${options.date}`;
+    }
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(2000);
 
     const { movies, noSessions, raw } = await extractProgramming(page);
