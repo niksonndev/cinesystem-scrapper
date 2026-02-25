@@ -30,9 +30,9 @@ const cache = new NormalizedCache();
 // --- Configuração de cinemas ---
 
 const CINEMAS = [
-  { id: '1162', name: 'Cinesystem', label: 'Cinesystem (Parque Shopping Maceió)' },
-  { id: '1230', name: 'Centerplex', label: 'Centerplex (Shopping Pátio Maceió)' },
-  { id: '924', name: 'Kinoplex', label: 'Kinoplex (Maceió Shopping)' },
+  { id: '1162', name: 'Cinesystem', label: 'Cinesystem (Parque Shopping Maceió)', url: 'https://www.ingresso.com/cinema/cinesystem-maceio?city=maceio' },
+  { id: '1230', name: 'Centerplex', label: 'Centerplex (Shopping Pátio Maceió)', url: 'https://www.ingresso.com/cinema/centerplex-shopping-patio-maceio?city=maceio' },
+  { id: '924', name: 'Kinoplex', label: 'Kinoplex (Maceió Shopping)', url: 'https://www.ingresso.com/cinema/kinoplex-maceio?city=maceio' },
 ];
 
 // Preferência de cinema por usuário (chatId → theaterId)
@@ -221,19 +221,22 @@ const formatMoviesForTelegram = (movies, dateStr, cinemaLabel) => {
 
 // --- Keyboards e botões ---
 
-const BACK_BUTTON_MARKUP = {
-  inline_keyboard: [
-    [
-      { text: '⬅️ Voltar ao menu', callback_data: 'voltar_menu' },
-      { text: '🔄 Trocar cinema', callback_data: 'trocar_cinema' },
-    ],
-  ],
-};
+function getBackButtonMarkup(cinemaUrl) {
+  const rows = [];
+  if (cinemaUrl) {
+    rows.push([{ text: '🎫 Comprar Ingressos', url: cinemaUrl }]);
+  }
+  rows.push([
+    { text: '⬅️ Voltar ao menu', callback_data: 'voltar_menu' },
+    { text: '🔄 Trocar cinema', callback_data: 'trocar_cinema' },
+  ]);
+  return { inline_keyboard: rows };
+}
 
-function sendWithBackButton(chatId, text) {
+function sendWithBackButton(chatId, text, cinemaUrl) {
   return bot.sendMessage(chatId, text, {
     parse_mode: 'Markdown',
-    reply_markup: BACK_BUTTON_MARKUP,
+    reply_markup: getBackButtonMarkup(cinemaUrl),
   });
 }
 
@@ -291,7 +294,7 @@ bot.onText(/\/hoje/, async (msg) => {
   try {
     const { movies, date } = await getMoviesForDate(null, cinema.id);
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    await sendWithBackButton(chatId, formatMoviesForTelegram(movies, date, cinema.label));
+    await sendWithBackButton(chatId, formatMoviesForTelegram(movies, date, cinema.label), cinema.url);
     console.log(`✅ /hoje enviado para ${msg.from.username || chatId} (${cinema.name})`);
   } catch (err) {
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
@@ -310,7 +313,7 @@ bot.onText(/\/proximos/, async (msg) => {
   try {
     const { items } = await getUpcomingMovies(cinema.id);
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    await sendWithBackButton(chatId, formatUpcomingForTelegram(items, cinema.label));
+    await sendWithBackButton(chatId, formatUpcomingForTelegram(items, cinema.label), cinema.url);
     console.log(`✅ /proximos enviado para ${msg.from.username || chatId} (${cinema.name}, ${items.length} filmes)`);
   } catch (err) {
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
@@ -346,7 +349,7 @@ bot.onText(/\/atualizar/, async (msg) => {
 
     const movies = denormalize(normalized.movies, normalized.sessions);
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    await sendWithBackButton(chatId, formatMoviesForTelegram(movies, normalized.date, cinema.label));
+    await sendWithBackButton(chatId, formatMoviesForTelegram(movies, normalized.date, cinema.label), cinema.url);
     console.log(`✅ /atualizar enviado para ${msg.from.username || chatId} (${cinema.name})`);
   } catch (err) {
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
@@ -491,7 +494,7 @@ bot.on('callback_query', async (query) => {
         response = '❓ Opção não reconhecida.';
     }
 
-    await sendWithBackButton(chatId, response);
+    await sendWithBackButton(chatId, response, cinema.url);
     console.log(`✅ Callback ${callbackData} respondido para ${query.from.username || chatId}`);
   } catch (err) {
     console.error(`❌ Erro ao processar ${callbackData}:`, err.message);
