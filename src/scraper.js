@@ -7,7 +7,6 @@ import { getProgrammingFromAPI } from './api.js';
 
 const CINEMA_URL = 'https://www.ingresso.com/cinema/cinesystem-maceio';
 
-
 /**
  * Extrai preços de uma sessão clicando no botão de preços
  * @param {import('playwright').Page} page
@@ -79,7 +78,9 @@ async function extractSessionPrice(page, button) {
 
     return priceData;
   } catch (err) {
-    try { await page.keyboard.press('Escape').catch(() => {}); } catch (_) {}
+    try {
+      await page.keyboard.press('Escape').catch(() => {});
+    } catch (_) {}
     return { gratuito: true };
   }
 }
@@ -116,6 +117,11 @@ export async function scrape(options = {}) {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({
     headless: options.headless !== false,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+    ],
   });
   const context = await browser.newContext({
     userAgent:
@@ -134,7 +140,9 @@ export async function scrape(options = {}) {
 
     // Extrai preços para cada sessão
     let sessionCount = 0;
-    const priceButtons = await page.$$('button[aria-label="Abrir modal de preços"]');
+    const priceButtons = await page.$$(
+      'button[aria-label="Abrir modal de preços"]',
+    );
 
     if (priceButtons.length === 0 && options.date) {
       console.log('⚠ Aviso: Nenhum botão de preços encontrado.');
@@ -150,10 +158,12 @@ export async function scrape(options = {}) {
           const card = button.closest('[class*="bg-ing-neutral-600"]');
           if (!card) return [];
           const links = card.querySelectorAll('a[href*="sessionId"]');
-          return Array.from(links).map(link => {
-            const match = link.href.match(/sessionId=(\d+)/);
-            return match ? match[1] : null;
-          }).filter(Boolean);
+          return Array.from(links)
+            .map((link) => {
+              const match = link.href.match(/sessionId=(\d+)/);
+              return match ? match[1] : null;
+            })
+            .filter(Boolean);
         });
 
         if (sessionIds.length > 0) {
