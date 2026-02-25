@@ -3,8 +3,9 @@
  *
  * Estrutura do arquivo:
  * {
- *   movies: { [movieId]: MovieStatic },      // dados estáticos (raro mudar)
- *   sessions: { [date]: { fetchedAt, items } }, // dados dinâmicos por data
+ *   movies: { [movieId]: MovieStatic },           // dados estáticos (raro mudar)
+ *   sessions: { [date]: { fetchedAt, items } },   // dados dinâmicos por data
+ *   upcoming: { fetchedAt, items },               // próximos lançamentos
  *   moviesUpdatedAt: ISO string
  * }
  *
@@ -19,7 +20,7 @@ const CACHE_FILE = 'data/cache.json';
 
 class NormalizedCache {
   constructor() {
-    this.data = { movies: {}, sessions: {}, moviesUpdatedAt: null };
+    this.data = { movies: {}, sessions: {}, upcoming: null, moviesUpdatedAt: null };
   }
 
   getMaceioDate(offsetDays = 0) {
@@ -38,7 +39,7 @@ class NormalizedCache {
       }
     } catch (err) {
       console.warn('⚠️  Cache corrompido, reinicializando:', err.message);
-      this.data = { movies: {}, sessions: {}, moviesUpdatedAt: null };
+      this.data = { movies: {}, sessions: {}, upcoming: null, moviesUpdatedAt: null };
     }
   }
 
@@ -116,6 +117,36 @@ class NormalizedCache {
    */
   getAllMovies() {
     return this.data.movies;
+  }
+
+  /**
+   * Salva próximos lançamentos no cache.
+   */
+  setUpcoming(items, fetchedAt) {
+    this.data.upcoming = { fetchedAt, items };
+    this.save();
+    console.log(`💾 ${items.length} lançamento(s) salvo(s) no cache`);
+  }
+
+  /**
+   * Retorna próximos lançamentos se o cache for válido (mesmo dia em Maceió).
+   * @returns {{ items: Array, fetchedAt: string } | null}
+   */
+  getUpcoming() {
+    const cached = this.data.upcoming;
+    if (!cached?.fetchedAt) return null;
+
+    const cachedDay = cached.fetchedAt.split('T')[0];
+    const today = this.getMaceioDate(0);
+
+    if (cachedDay !== today) {
+      console.log(`📅 Cache de lançamentos expirado (${cachedDay} → ${today})`);
+      this.data.upcoming = null;
+      return null;
+    }
+
+    console.log('✅ Cache hit: próximos lançamentos');
+    return cached;
   }
 
   /**

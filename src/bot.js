@@ -9,7 +9,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import express from 'express';
 import { config } from 'dotenv';
-import { fetchNormalized } from './api.js';
+import { fetchNormalized, fetchUpcoming } from './api.js';
 import { denormalize } from './normalize.js';
 import NormalizedCache from './cache.js';
 
@@ -64,6 +64,76 @@ async function getMoviesForDate(date = null) {
   const movies = denormalize(normalized.movies, normalized.sessions);
   return { movies, date: normalized.date, fromCache: false };
 }
+
+/**
+ * Busca próximos lançamentos, usando cache quando disponível.
+ * @returns {{ items: Array, fromCache: boolean }}
+ */
+async function getUpcomingMovies() {
+  const cached = cache.getUpcoming();
+  if (cached) {
+    return { items: cached.items, fromCache: true };
+  }
+
+  const result = await fetchUpcoming();
+  cache.setUpcoming(result.items, result.fetchedAt);
+  return { items: result.items, fromCache: false };
+}
+
+const FORMAT_LABELS = { '2D': '2D', 'Cinépic': 'Cinépic', 'VIP': 'VIP', '3D': '3D' };
+
+/**
+ * Formata lista de próximos lançamentos para o Telegram.
+ * Exibe no máximo `limit` filmes, ordenados pela primeira data de exibição.
+ */
+const formatUpcomingForTelegram = (items, limit = 10) => {
+  if (!items || items.length === 0) {
+    return '📭 *Nenhum lançamento próximo encontrado no Cinesystem Maceió.*';
+  }
+
+  const now = new Date(
+    new Date().toLocaleString('en-US', { timeZone: 'America/Maceio' }),
+  );
+  const todayStr = now.toISOString().split('T')[0];
+
+  const sliced = items.slice(0, limit);
+
+  let message = '*🆕 PRÓXIMOS LANÇAMENTOS — CINESYSTEM MACEIÓ*\n\n';
+
+  sliced.forEach((movie) => {
+    const diffDays = Math.ceil(
+      (new Date(movie.firstDate) - new Date(todayStr)) / 86400000,
+    );
+
+    let quando;
+    if (diffDays === 1) {
+      quando = `amanhã (${movie.firstDateFormatted})`;
+    } else if (diffDays <= 7) {
+      quando = `nesta *${movie.firstDateDayOfWeek}* (${movie.firstDateFormatted})`;
+    } else {
+      quando = `em ${movie.firstDateFormatted} (${movie.firstDateDayOfWeek})`;
+    }
+
+    const preSale = movie.inPreSale ? ' 🔥 PRÉ-VENDA' : '';
+    const genreTag = movie.genres?.length ? ` _${movie.genres.join(', ')}_` : '';
+    const formatTag = movie.formats?.length
+      ? ` | ${movie.formats.map((f) => FORMAT_LABELS[f] || f).join(', ')}`
+      : '';
+    const priceTag = movie.priceFrom
+      ? ` | A partir de R$ ${movie.priceFrom.toFixed(2).replace('.', ',')}`
+      : '';
+
+    message += `🎬 *${movie.title}*${preSale}\n`;
+    message += `   📅 Estreia ${quando}\n`;
+    message += `  ${genreTag}${formatTag}${priceTag}\n\n`;
+  });
+
+  if (items.length > limit) {
+    message += `_...e mais ${items.length - limit} lançamento(s)._\n`;
+  }
+
+  return message;
+};
 
 // Função auxiliar: Formata filmes para exibição no Telegram
 const formatMoviesForTelegram = (movies, dateStr) => {
@@ -137,6 +207,19 @@ const formatMoviesForTelegram = (movies, dateStr) => {
   return message;
 };
 
+const BACK_BUTTON_MARKUP = {
+  inline_keyboard: [
+    [{ text: '⬅️ Voltar ao menu', callback_data: 'voltar_menu' }],
+  ],
+};
+
+function sendWithBackButton(chatId, text) {
+  return bot.sendMessage(chatId, text, {
+    parse_mode: 'Markdown',
+    reply_markup: BACK_BUTTON_MARKUP,
+  });
+}
+
 // URL de imagem placeholder
 const MAIN_IMAGE_URL =
   'https://imgs.search.brave.com/RR3QyRyk8txiCmdUFGV3jlLc6hEyUR29hg2Gyb_m5iw/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9wb3J0/YWxob3J0b2xhbmRp/YS5jb20uYnIvd3At/Y29udGVudC91cGxv/YWRzLzIwMjUvMDMv/Y2luZXN5c3RlbS1o/b3J0b2xhbmRpYS0z/NTB4MjUwLmpwZw';
@@ -149,6 +232,9 @@ const getMainKeyboard = () => {
         { text: '🎬 Filmes de Hoje', callback_data: 'filmes_hoje' },
         { text: '📅 Filmes de Amanhã', callback_data: 'filmes_amanha' },
       ],
+      [
+        { text: '🆕 Próximos Lançamentos', callback_data: 'proximos_lancamentos' },
+      ],
       [{ text: '❓ Como Funciona', callback_data: 'como_funciona' }],
     ],
   };
@@ -159,6 +245,7 @@ const setCommands = async () => {
   try {
     await bot.setMyCommands([
       { command: 'start', description: 'Iniciar e testar o bot' },
+      { command: 'proximos', description: 'Próximos lançamentos no cinema' },
       { command: 'atualizar', description: 'Buscar dados novos (ignora cache)' },
     ]);
     console.log('✅ Menu de comandos configurado');
@@ -191,6 +278,30 @@ Escolha uma opção abaixo para começar:`;
   }
 });
 
+// Handler para /proximos
+bot.onText(/\/proximos/, async (msg) => {
+  const chatId = msg.chat.id;
+
+  const loadingMsg = await bot.sendMessage(
+    chatId,
+    '⏳ Buscando próximos lançamentos...',
+  );
+
+  try {
+    const { items, fromCache } = await getUpcomingMovies();
+    let response = formatUpcomingForTelegram(items);
+
+    await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+    await sendWithBackButton(chatId, response);
+
+    console.log(`✅ /proximos enviado para ${msg.from.username || chatId} (${items.length} filmes)`);
+  } catch (err) {
+    await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+    await bot.sendMessage(chatId, `❌ Erro ao buscar lançamentos: ${err.message}`);
+    console.error(`❌ Erro em /proximos para ${chatId}:`, err.message);
+  }
+});
+
 // Handler para /atualizar - força refresh ignorando cache
 bot.onText(/\/atualizar/, async (msg) => {
   const chatId = msg.chat.id;
@@ -211,7 +322,7 @@ bot.onText(/\/atualizar/, async (msg) => {
     const response = formatMoviesForTelegram(movies, normalized.date);
 
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    await bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+    await sendWithBackButton(chatId, response);
 
     console.log(`✅ /atualizar enviado para ${msg.from.username || chatId}`);
   } catch (err) {
@@ -258,9 +369,6 @@ bot.on('callback_query', async (query) => {
         }
 
         response = formatMoviesForTelegram(today.movies, today.date);
-        if (today.fromCache) {
-          response += '\n\n_Dados fornecidos pelo cache_';
-        }
         break;
       }
 
@@ -284,10 +392,37 @@ bot.on('callback_query', async (query) => {
         }
 
         response = formatMoviesForTelegram(tomorrow.movies, tomorrow.date);
-        if (tomorrow.fromCache) {
-          response += '\n\n_Dados fornecidos pelo cache_';
-        }
         break;
+      }
+
+      case 'proximos_lancamentos': {
+        console.log(`⏳ Buscando próximos lançamentos para ${chatId}...`);
+
+        let loadingMsg = null;
+        if (!cache.getUpcoming()) {
+          loadingMsg = await bot.sendMessage(
+            chatId,
+            '⏳ Buscando próximos lançamentos...',
+          );
+        }
+
+        const { items, fromCache } = await getUpcomingMovies();
+
+        if (loadingMsg) {
+          await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+        }
+
+        response = formatUpcomingForTelegram(items);
+        break;
+      }
+
+      case 'voltar_menu': {
+        const caption = `*🎬 Bem-vindo ao Cinesystem Bot!*\n\nEscolha uma opção:`;
+        await bot.sendMessage(chatId, caption, {
+          parse_mode: 'Markdown',
+          reply_markup: getMainKeyboard(),
+        });
+        return;
       }
 
       case 'como_funciona':
@@ -297,8 +432,8 @@ bot.on('callback_query', async (query) => {
           '💡 *Funcionalidades:*\n' +
           '🎬 Filmes de Hoje - Veja os filmes em exibição hoje\n' +
           '📅 Filmes de Amanhã - Veja os filmes em exibição amanhã\n' +
-          '💰 Preços - Os preços são extraídos automaticamente\n\n' +
-          '_Para usar, basta clicar nos botões acima._';
+          '🆕 Próximos Lançamentos - Veja o que está chegando\n' +
+          '💰 Preços - Os preços são extraídos automaticamente\n\n';
         break;
 
       default:
@@ -310,9 +445,7 @@ bot.on('callback_query', async (query) => {
   }
 
   try {
-    await bot.sendMessage(chatId, response, {
-      parse_mode: 'Markdown',
-    });
+    await sendWithBackButton(chatId, response);
     console.log(
       `✅ Resposta enviada para callback: ${callbackData} de ${query.from.username || chatId}`,
     );

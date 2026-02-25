@@ -7,6 +7,9 @@
  *
  * Payload original: ~112KB (15 filmes, 32 sessões)
  * Payload normalizado: ~8KB (mesmos dados úteis para UI)
+ *
+ * Também normaliza próximos lançamentos a partir do endpoint de sessões,
+ * identificando filmes que ainda não estão em cartaz hoje.
  */
 
 /**
@@ -108,6 +111,63 @@ export function normalizeSessionsResponse(apiResponse) {
     date: data.date || null,
     fetchedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Normaliza próximos lançamentos a partir das sessões futuras do cinema.
+ * Percorre todas as datas futuras, identifica filmes que não estão em
+ * cartaz hoje (novidades), e extrai apenas os campos úteis para a UI.
+ *
+ * @param {Array} futureDates - Array de objetos { date, movies, ... } de datas futuras
+ * @param {Set<string>} todayMovieIds - IDs dos filmes em cartaz hoje
+ * @returns {Array} Filmes novos, ordenados pela primeira data de exibição
+ */
+export function normalizeUpcomingFromSessions(futureDates, todayMovieIds) {
+  const seen = new Map();
+
+  for (const dateEntry of futureDates) {
+    const movies = dateEntry.movies || [];
+
+    for (const raw of movies) {
+      if (todayMovieIds.has(raw.id) || seen.has(raw.id)) continue;
+
+      const poster = raw.images?.find((i) => i.type === 'PosterPortrait')?.url ?? null;
+
+      const formats = new Set();
+      let minPrice = null;
+
+      const sessionGroups = raw.sessionTypes || raw.rooms || [];
+      for (const group of sessionGroups) {
+        for (const s of group.sessions || []) {
+          for (const t of s.types || []) {
+            if (t.name !== 'Dublado' && t.name !== 'Legendado') {
+              formats.add(t.alias);
+            }
+          }
+          if (s.price && (minPrice === null || s.price < minPrice)) {
+            minPrice = s.price;
+          }
+        }
+      }
+
+      seen.set(raw.id, {
+        id: raw.id,
+        title: raw.title,
+        contentRating: raw.contentRating || null,
+        genres: raw.genres ?? [],
+        poster,
+        inPreSale: raw.inPreSale ?? false,
+        formats: [...formats],
+        priceFrom: minPrice,
+        firstDate: dateEntry.date,
+        firstDateFormatted: dateEntry.dateFormatted,
+        firstDateDayOfWeek: dateEntry.dayOfWeek,
+        siteURL: raw.siteURLByTheater || raw.siteURL || null,
+      });
+    }
+  }
+
+  return [...seen.values()];
 }
 
 /**
