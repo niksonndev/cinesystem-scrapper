@@ -23,7 +23,7 @@ if (!token) {
 
 const bot = new TelegramBot(token, { polling: true });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 10000;
 const app = express();
 let server;
 const cache = new NormalizedCache();
@@ -62,6 +62,7 @@ function askCinemaFirst(chatId) {
 // --- Health check ---
 
 app.get('/', (req, res) => {
+  console.log('📡 Health check recebido (Render)');
   res.json({
     status: '✅ Bot está online!',
     timestamp: new Date().toISOString(),
@@ -531,9 +532,9 @@ bot.on('polling_error', (err) => {
   await cache.load();
   await setCommands();
 
-  server = app.listen(PORT, () => {
-    console.log(`✅ Servidor escutando na porta ${PORT}`);
-    console.log(`📡 Health check: http://localhost:${PORT}/`);
+  server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Bot subiu na porta ${PORT} (host 0.0.0.0)`);
+    console.log(`📡 Health check: http://0.0.0.0:${PORT}/`);
   });
 
   console.log('🚀 Bot iniciado em modo polling...');
@@ -542,10 +543,10 @@ bot.on('polling_error', (err) => {
 
 // Graceful shutdown (SIGTERM em container, SIGINT local)
 let shuttingDown = false;
-function shutdown() {
+function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log('\n👋 Desligando bot...');
+  console.log(`\n👋 Desligando bot (sinal recebido: ${signal})...`);
   bot.stopPolling();
   if (server) {
     server.close(() => {
@@ -556,5 +557,5 @@ function shutdown() {
     process.exit(0);
   }
 }
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
