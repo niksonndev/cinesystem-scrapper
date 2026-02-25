@@ -6,6 +6,19 @@
 
 ---
 
+## 🟢 Status do Deploy
+
+O bot está **hospedado no [Render](https://render.com)** e permanece estável em produção.
+
+| Item | Detalhe |
+| --- | --- |
+| 🌐 **URL do serviço** | https://cinesystem-scrapper.onrender.com |
+| 📡 **Health check** | `GET https://cinesystem-scrapper.onrender.com/` — retorna status e timestamp em JSON |
+| 🔌 **Porta** | Dinâmica via `process.env.PORT` (fallback `10000`), conforme exigido pelo Render |
+| 📋 **Logs** | Health check e graceful shutdown (SIGTERM/SIGINT) para monitoramento da estabilidade do container |
+
+---
+
 ## ✨ Funcionalidades
 
 🎥 **Filmes de Hoje** — Programação completa com horários, formatos (2D, 3D, Cinépic, VIP) e preços
@@ -78,15 +91,17 @@ Bot:     🎬 PROGRAMAÇÃO
 
 | Tecnologia | Uso |
 | --- | --- |
-| **Node.js** | Runtime do bot e CLI |
-| **node-telegram-bot-api** | Integração com a API do Telegram (polling) |
+| **Node.js** | Runtime do bot e da CLI |
+| **Telegram Bot API** | Bot via [node-telegram-bot-api](https://github.com/yagop/node-telegram-bot-api) (modo polling) |
 | **Axios** | Requisições HTTP para a API do Ingresso.com |
-| **Express** | Servidor HTTP para health check |
+| **Express** | Servidor HTTP para health check (porta dinâmica) |
 | **dotenv** | Gerenciamento de variáveis de ambiente |
 
 ---
 
 ## 🚀 Como Rodar
+
+### Rodar localmente
 
 **1. Clone o repositório**
 
@@ -101,17 +116,19 @@ cd cinesystem-scrapper
 npm install
 ```
 
-**3. Configure o ambiente**
+**3. Configure as variáveis de ambiente**
 
 ```bash
 cp .env.example .env
 ```
 
-Edite o `.env` e adicione o token do seu bot (obtido via [@BotFather](https://t.me/BotFather)):
+Edite o `.env` e defina o token do bot (obtido via [@BotFather](https://t.me/BotFather)):
 
 ```env
 TELEGRAM_BOT_TOKEN=seu_token_aqui
 ```
+
+Opcionalmente, defina `PORT` (padrão local: `10000`). No Render, a porta é injetada automaticamente.
 
 **4. Inicie o bot**
 
@@ -119,7 +136,7 @@ TELEGRAM_BOT_TOKEN=seu_token_aqui
 npm run bot:listen
 ```
 
-O bot estará escutando comandos no Telegram e um health check ficará disponível em `http://localhost:3000`.
+O bot ficará escutando comandos no Telegram. O health check estará em `http://localhost:10000/` (ou na porta definida em `PORT`).
 
 ---
 
@@ -149,7 +166,7 @@ src/
 | Variável | Obrigatória | Padrão | Descrição |
 | --- | --- | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | Sim | — | Token do bot obtido via @BotFather |
-| `PORT` | Não | `3000` | Porta do servidor Express (health check) |
+| `PORT` | Não | `10000` | Porta do servidor (health check). No Render use a porta dinâmica `process.env.PORT` — o código já usa fallback `10000` |
 
 ---
 
@@ -164,11 +181,13 @@ docker run -e TELEGRAM_BOT_TOKEN=seu_token maceio-cine-bot
 
 ## ☁️ Deploy no Render
 
-1. Crie um **Web Service** conectado ao repositório
+1. Crie um **Web Service** conectado ao repositório.
 2. **Build Command:** `npm ci`
 3. **Start Command:** `npm run bot:listen`
-4. **Environment Variables:** configure `TELEGRAM_BOT_TOKEN`
-5. Acesse `https://seu-app.render.com/` para verificar o status
+4. **Environment Variables:** configure `TELEGRAM_BOT_TOKEN` (o Render injeta `PORT` automaticamente).
+5. **Health Check URL:** o Render usa a URL do serviço (ex.: `https://cinesystem-scrapper.onrender.com/`) para verificar se o bot está vivo.
+
+O projeto usa **porta dinâmica** (`process.env.PORT` com fallback `10000`) e servidor em **0.0.0.0**, essencial para o Render. Logs de **Health Check** e **Graceful Shutdown** (SIGTERM/SIGINT) ajudam a monitorar a estabilidade do container.
 
 ---
 

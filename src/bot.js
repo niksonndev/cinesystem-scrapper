@@ -21,7 +21,12 @@ if (!token) {
   throw new Error('TELEGRAM_BOT_TOKEN não configurado no .env');
 }
 
-const bot = new TelegramBot(token, { polling: true });
+const bot = new TelegramBot(token, {
+  polling: {
+    interval: 1000,
+    params: { timeout: 30 },
+  },
+});
 
 const PORT = process.env.PORT || 10000;
 const app = express();
@@ -62,10 +67,17 @@ function askCinemaFirst(chatId) {
 // --- Health check ---
 
 app.get('/', (req, res) => {
-  console.log('📡 Health check recebido (Render)');
+  const mem = process.memoryUsage();
+  const memMB = {
+    heapUsed: (mem.heapUsed / 1024 / 1024).toFixed(2),
+    heapTotal: (mem.heapTotal / 1024 / 1024).toFixed(2),
+    rss: (mem.rss / 1024 / 1024).toFixed(2),
+  };
+  console.log('📡 Health check recebido (Render)', memMB);
   res.json({
     status: '✅ Bot está online!',
     timestamp: new Date().toISOString(),
+    memory: memMB,
   });
 });
 
@@ -536,6 +548,21 @@ bot.on('polling_error', (err) => {
     console.log(`✅ Bot subiu na porta ${PORT} (host 0.0.0.0)`);
     console.log(`📡 Health check: http://0.0.0.0:${PORT}/`);
   });
+
+  // Auto-ping para evitar idling no Render (polling do Telegram não gera tráfego HTTP)
+  const selfUrl = process.env.RENDER_EXTERNAL_URL;
+  if (selfUrl) {
+    const PING_INTERVAL_MS = 10 * 60 * 1000; // 10 minutos
+    setInterval(async () => {
+      try {
+        const res = await fetch(selfUrl);
+        console.log(`🔄 Auto-ping ${selfUrl} → ${res.status}`);
+      } catch (err) {
+        console.error('❌ Auto-ping falhou:', err.message);
+      }
+    }, PING_INTERVAL_MS);
+    console.log(`⏱️ Auto-ping ativo a cada 10 min → ${selfUrl}`);
+  }
 
   console.log('🚀 Bot iniciado em modo polling...');
   console.log('Aguardando mensagens. Envie /start para começar.');
