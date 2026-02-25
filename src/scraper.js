@@ -1,54 +1,12 @@
 /**
  * Scraper da programação do Cinesystem Maceió (Ingresso.com)
- * Extrai filmes e horários de sessão da página.
+ * Obtém filmes e horários da API, extrai preços via Playwright.
  */
+
+import { getProgrammingFromAPI } from './api.js';
 
 const CINEMA_URL = 'https://www.ingresso.com/cinema/cinesystem-maceio';
 
-/** Padrões que não são nomes de filme (usado pós-extração no Node) */
-const SKIP_PATTERNS = [
-  /^toda a programação$/i,
-  /^você também pode gostar$/i,
-  /^sessões?$/i,
-  /^detalhes$/i,
-  /^programação$/i,
-  /^filmes?$/i,
-  /ingresso\.com|^cinema[s]?$/i,
-  /^comprar ingresso$/i,
-  /^ver mais$/i,
-  /^horários?$/i,
-  /^entrar$/i,
-  /^maceió$/i,
-  /^hoje$/i,
-  /^(seg|ter|qua|qui|sex|sáb|dom)$/i,
-  /^\d{1,2}\/\d{1,2}$/, // 21/02
-  /^\d+h\d{2}$/i, // 3h17, 1h48
-  /^(dublado|legendado|nacional|vip|normal|cinepic)$/i,
-  /^cinemas?$/i,
-  /^teatro$/i,
-  /^eventos?$/i,
-  /^notícias?$/i,
-  /^ver no mapa$/i,
-  /^estreia\s+\d/i,
-  /^estamos em maceió|percebemos que você|queremos sugerir|localização está certa/i,
-  /^sim, estou em|não, estou em outra/i,
-  /^cinesystem maceió$/i,
-  /^av\.\s|endereço|loja \d/i,
-  /^baixe nosso|como podemos ajudar|menu|institucional|políticas|redes sociais/i,
-  /^formas de pagamento|crédito|débito|troque seus pontos|selo do consumidor/i,
-  /^ver todos?$/i,
-  /^movieid\.com$/i,
-  /^venda ingressos online$/i,
-];
-
-function isLikelyMovieTitleNode(name) {
-  const n = (name || '').trim();
-  if (n.length < 4 || n.length > 120) return false;
-  if (SKIP_PATTERNS.some((re) => re.test(n))) return false;
-  if (/^\d{1,2}:\d{2}/.test(n)) return false;
-  if (/^\d+$/.test(n)) return false;
-  return true;
-}
 
 /**
  * Extrai preços de uma sessão clicando no botão de preços
@@ -127,151 +85,63 @@ async function extractSessionPrice(page, button) {
 }
 
 /**
- * Extrai programação da página usando Playwright com suporte a preços.
- * @param {import('playwright').Page} page
- * @param {boolean} extractPrices - se deve extrair preços (mais lento)
- * @returns {Promise<{ movies: Array, noSessions: boolean, raw: string }>}
+ * Abre a página do cinema e extrai a programação via API + Playwright para preços.
+ * @param {object} options - { headless: boolean, date?: string (DD/MM/YYYY), extractPrices?: boolean }
+ * @returns {Promise<{ movies, noSessions, raw, scrapedAt }>}
  */
-export async function extractProgramming(page, extractPrices = false) {
-  // Aguarda a página estabilizar (conteúdo dinâmico)
-  await page.waitForLoadState('networkidle').catch(() => {});
+export async function scrape(options = {}) {
+  // Obtém filmes + sessões da API (rápido e confiável)
+  const apiMovies = await getProgrammingFromAPI(options.date);
 
-  const result = await page.evaluate(() => {
-    function isLikelyMovieTitle(name) {
-      const n = (name || '').trim();
-      if (n.length < 4 || n.length > 120) return false;
-      if (/^\d{1,2}:\d{2}/.test(n)) return false;
-      if (/^\d+h\d{2}$/i.test(n)) return false;
-      if (/^(seg|ter|qua|qui|sex|sáb|dom|hoje)$/i.test(n)) return false;
-      if (/^(dublado|legendado|nacional|vip|normal|cinepic)$/i.test(n))
-        return false;
-      if (/^\d{1,2}\/\d{1,2}$/.test(n)) return false;
-      return true;
-    }
-
-    const movies = [];
-    const seen = new Set();
-
-    // Mensagem de "sem sessões"
-    const noSessions = document.body.innerText.includes(
-      'Ainda não temos sessões',
-    );
-    if (noSessions) {
-      return {
-        movies: [],
-        noSessions: true,
-        raw: document.body.innerText.slice(0, 2000),
-      };
-    }
-
-    // Tentar estrutura: cada filme em um card/container com título + lista de horários
-    const cardSelectors = [
-      '[class*="bg-ing-neutral-600"]', // Seletor correto para a estrutura atual do Ingresso
-      '[class*="movie-card"], [class*="MovieCard"]',
-      '[class*="session-card"], [class*="SessionCard"]',
-      '[data-testid*="movie"], [data-testid*="session"]',
-      'article',
-      '[class*="card"]',
-      'section',
-    ];
-
-    for (const cardSel of cardSelectors) {
-      const cards = document.querySelectorAll(cardSel);
-      if (cards.length < 2) continue;
-
-      for (const card of cards) {
-        const titleEls = card.querySelectorAll(
-          'h2, h3, h4, [class*="title"], [class*="Title"]',
-        );
-        let name = '';
-        for (const el of titleEls) {
-          const t = (el.textContent || '').trim();
-          if (t && isLikelyMovieTitle(t) && t.length > (name.length || 0))
-            name = t;
-        }
-        if (!name) continue;
-
-        const key = name.toLowerCase().replace(/\s+/g, ' ');
-        if (seen.has(key)) continue;
-        seen.add(key);
-
-        // Extrai horários com IDs de sessão
-        const sessions = [];
-        const links = card.querySelectorAll('a[href*="sessionId"]');
-        for (const link of links) {
-          const href = link.getAttribute('href') || '';
-          const timeEl = link.querySelector('span') || link;
-          const time = (timeEl.textContent || '').trim();
-
-          // Extrai sessionId da URL
-          const sessionMatch = href.match(/sessionId=(\d+)/);
-          const sessionId = sessionMatch ? sessionMatch[1] : null;
-
-          // Validar que é um horário válido
-          if (/^\d{1,2}:\d{2}$/.test(time)) {
-            sessions.push({ time, sessionId });
-          }
-        }
-
-        if (sessions.length > 0) {
-          movies.push({ name, sessions });
-        }
-      }
-      // Se encontrou filmes com este seletor, continue verificando
-      if (movies.length > 2) break;
-    }
-
-    // Filtra filmes válidos
-    const filtered = movies.filter((m) => isLikelyMovieTitle(m.name));
-
-    const final = filtered.length ? filtered : movies;
+  if (!apiMovies || apiMovies.length === 0) {
     return {
-      movies: final,
-      noSessions: false,
-      raw: document.body.innerText.slice(0, 3000),
+      movies: [],
+      noSessions: true,
+      raw: 'Nenhum filme encontrado na API',
+      scrapedAt: new Date().toISOString(),
     };
+  }
+
+  // Se não precisa extrair preços, retorna dados da API
+  if (options.extractPrices !== true) {
+    return {
+      movies: apiMovies,
+      noSessions: false,
+      raw: '',
+      scrapedAt: new Date().toISOString(),
+    };
+  }
+
+  // Extrai preços usando Playwright (se solicitado)
+  const { chromium } = await import('playwright');
+  const browser = await chromium.launch({
+    headless: options.headless !== false,
+  });
+  const context = await browser.newContext({
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    viewport: { width: 1280, height: 720 },
   });
 
-  // Associa sessões de blocos "DUBLADO"/"LEGENDADO" ao filme anterior
-  const raw = result.movies || [];
-  const merged = [];
-  for (const item of raw) {
-    const name = (item.name || '').trim();
-    const isTypeBlock =
-      /^(dublado|legendado|nacional|vip|normal|cinepic)$/i.test(name) &&
-      (item.sessions || []).length > 0;
-    if (isTypeBlock && merged.length > 0) {
-      const last = merged[merged.length - 1];
-      const times = item.sessions || [];
-      last.sessions = [
-        ...new Set([...(last.sessions || []), ...times]),
-      ].sort((a, b) => {
-        const timeA = typeof a === 'string' ? a : a.time;
-        const timeB = typeof b === 'string' ? b : b.time;
-        return timeA.localeCompare(timeB);
-      });
-    } else if (isLikelyMovieTitleNode(name)) {
-      merged.push({ name, sessions: [...(item.sessions || [])].sort() });
+  try {
+    const page = await context.newPage();
+    let url = CINEMA_URL;
+    if (options.date) {
+      url += `?date=${options.date}`;
     }
-  }
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForTimeout(2000);
 
-  // Se a ordem da página for diferente, incluir filmes que tenham só nome
-  if (merged.length === 0 && raw.length > 0) {
-    for (const item of raw) {
-      const name = (item.name || '').trim();
-      if (isLikelyMovieTitleNode(name)) {
-        merged.push({ name, sessions: [...(item.sessions || [])].sort() });
-      }
-    }
-  }
-
-  // Extrai preços se solicitado (otimizado)
-  if (extractPrices && merged.length > 0) {
-    console.log('Extraindo preços...');
+    // Extrai preços para cada sessão
     let sessionCount = 0;
     const priceButtons = await page.$$('button[aria-label="Abrir modal de preços"]');
 
-    // Mapeia botão -> sessionId para acesso rápido
+    if (priceButtons.length === 0 && options.date) {
+      console.log('⚠ Aviso: Nenhum botão de preços encontrado.');
+      console.log('(Os preços só são disponíveis para sessões de hoje)');
+    }
+
+    // Mapeia sessionId -> button para acesso rápido
     const buttonToSession = new Map();
 
     for (const btn of priceButtons) {
@@ -294,8 +164,8 @@ export async function extractProgramming(page, extractPrices = false) {
       } catch (_) {}
     }
 
-    // Extrai preços usando o mapa
-    for (const movie of merged) {
+    // Extrai preços e adiciona aos dados da API
+    for (const movie of apiMovies) {
       if (!Array.isArray(movie.sessions)) continue;
 
       for (const session of movie.sessions) {
@@ -315,50 +185,12 @@ export async function extractProgramming(page, extractPrices = false) {
     }
 
     console.log(`✓ ${sessionCount} sessões com preço.`);
-  }
-
-  return {
-    movies: merged,
-    noSessions: result.noSessions || false,
-    raw: result.raw || '',
-  };
-}
-
-/**
- * Abre a página do cinema e extrai a programação.
- * @param {object} options - { headless: boolean, date?: string (DD/MM/YYYY), extractPrices?: boolean }
- * @returns {Promise<{ movies, noSessions, raw, scrapedAt }>}
- */
-export async function scrape(options = {}) {
-  const { chromium } = await import('playwright');
-  const browser = await chromium.launch({
-    headless: options.headless !== false,
-  });
-  const context = await browser.newContext({
-    userAgent:
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 720 },
-  });
-
-  try {
-    const page = await context.newPage();
-    let url = CINEMA_URL;
-    if (options.date) {
-      url += `?date=${options.date}`;
-    }
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForTimeout(2000);
-
-    const { movies, noSessions, raw } = await extractProgramming(
-      page,
-      options.extractPrices === true,
-    );
     await browser.close();
 
     return {
-      movies,
-      noSessions,
-      raw,
+      movies: apiMovies,
+      noSessions: false,
+      raw: '',
       scrapedAt: new Date().toISOString(),
     };
   } catch (err) {
