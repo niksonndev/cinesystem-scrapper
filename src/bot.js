@@ -12,6 +12,7 @@ import { config } from 'dotenv';
 import { fetchNormalized, fetchUpcoming } from './api.js';
 import { denormalize } from './normalize.js';
 import NormalizedCache from './cache.js';
+import { getMovieRatings, formatRatingsLine } from './ratings.js';
 
 config();
 
@@ -124,7 +125,7 @@ async function getUpcomingMovies(theaterId = '1162') {
 
 const FORMAT_LABELS = { '2D': '2D', 'Cinépic': 'Cinépic', 'VIP': 'VIP', '3D': '3D' };
 
-const formatUpcomingForTelegram = (items, cinemaLabel, limit = 10) => {
+const formatUpcomingForTelegram = async (items, cinemaLabel, limit = 10) => {
   if (!items || items.length === 0) {
     return '📭 *Nenhum lançamento próximo encontrado.*';
   }
@@ -138,7 +139,10 @@ const formatUpcomingForTelegram = (items, cinemaLabel, limit = 10) => {
 
   let message = `*🆕 PRÓXIMOS LANÇAMENTOS*\n📍 ${cinemaLabel}\n\n`;
 
-  sliced.forEach((movie) => {
+  const ratingsPromises = sliced.map((movie) => getMovieRatings(movie.title));
+  const ratingsList = await Promise.all(ratingsPromises);
+
+  sliced.forEach((movie, index) => {
     const diffDays = Math.ceil(
       (new Date(movie.firstDate) - new Date(todayStr)) / 86400000,
     );
@@ -162,6 +166,8 @@ const formatUpcomingForTelegram = (items, cinemaLabel, limit = 10) => {
       : '';
 
     message += `🎬 *${movie.title}*${preSale}\n`;
+    const ratingsLine = formatRatingsLine(ratingsList[index]);
+    if (ratingsLine) message += `   ${ratingsLine.trim()}\n`;
     message += `   📅 Estreia ${quando}\n`;
     message += `  ${genreTag}${formatTag}${priceTag}\n\n`;
   });
@@ -173,7 +179,7 @@ const formatUpcomingForTelegram = (items, cinemaLabel, limit = 10) => {
   return message;
 };
 
-const formatMoviesForTelegram = (movies, dateStr, cinemaLabel) => {
+const formatMoviesForTelegram = async (movies, dateStr, cinemaLabel) => {
   if (!movies || movies.length === 0) {
     return '📭 *Nenhum filme em cartaz para esta data.*';
   }
@@ -197,8 +203,13 @@ const formatMoviesForTelegram = (movies, dateStr, cinemaLabel) => {
 
   const FORMAT_ICONS = { '2D': '🎞', 'Cinépic': '🖥', 'VIP': '⭐' };
 
-  movies.forEach((filme) => {
+  const ratingsPromises = movies.map((filme) => getMovieRatings(filme.name));
+  const ratingsList = await Promise.all(ratingsPromises);
+
+  movies.forEach((filme, index) => {
     message += `*🎭 ${filme.name}*\n`;
+    const ratingsLine = formatRatingsLine(ratingsList[index]);
+    if (ratingsLine) message += ratingsLine;
 
     if (!filme.sessions || filme.sessions.length === 0) {
       message += '\n';
@@ -308,7 +319,7 @@ bot.onText(/\/hoje/, async (msg) => {
   try {
     const { movies, date } = await getMoviesForDate(null, cinema.id);
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    await sendWithBackButton(chatId, formatMoviesForTelegram(movies, date, cinema.label), cinema.url);
+    await sendWithBackButton(chatId, await formatMoviesForTelegram(movies, date, cinema.label), cinema.url);
     console.log(`✅ /hoje enviado para ${msg.from.username || chatId} (${cinema.name})`);
   } catch (err) {
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
@@ -327,7 +338,7 @@ bot.onText(/\/proximos/, async (msg) => {
   try {
     const { items } = await getUpcomingMovies(cinema.id);
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    await sendWithBackButton(chatId, formatUpcomingForTelegram(items, cinema.label), cinema.url);
+    await sendWithBackButton(chatId, await formatUpcomingForTelegram(items, cinema.label), cinema.url);
     console.log(`✅ /proximos enviado para ${msg.from.username || chatId} (${cinema.name}, ${items.length} filmes)`);
   } catch (err) {
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
@@ -363,7 +374,7 @@ bot.onText(/\/atualizar/, async (msg) => {
 
     const movies = denormalize(normalized.movies, normalized.sessions);
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    await sendWithBackButton(chatId, formatMoviesForTelegram(movies, normalized.date, cinema.label), cinema.url);
+    await sendWithBackButton(chatId, await formatMoviesForTelegram(movies, normalized.date, cinema.label), cinema.url);
     console.log(`✅ /atualizar enviado para ${msg.from.username || chatId} (${cinema.name})`);
   } catch (err) {
     await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
@@ -441,7 +452,7 @@ bot.on('callback_query', async (query) => {
           await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
         }
 
-        response = formatMoviesForTelegram(today.movies, today.date, cinema.label);
+        response = await formatMoviesForTelegram(today.movies, today.date, cinema.label);
         break;
       }
 
@@ -461,7 +472,7 @@ bot.on('callback_query', async (query) => {
           await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
         }
 
-        response = formatMoviesForTelegram(tomorrow.movies, tomorrow.date, cinema.label);
+        response = await formatMoviesForTelegram(tomorrow.movies, tomorrow.date, cinema.label);
         break;
       }
 
@@ -479,7 +490,7 @@ bot.on('callback_query', async (query) => {
           await bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
         }
 
-        response = formatUpcomingForTelegram(items, cinema.label);
+        response = await formatUpcomingForTelegram(items, cinema.label);
         break;
       }
 
