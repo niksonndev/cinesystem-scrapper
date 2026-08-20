@@ -1,0 +1,111 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Maceio Cine Bot — Telegram webhook (API Gateway + Lambda) + EventBridge cache warming
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        NODE_ENV: production
+
+Parameters:
+  TelegramBotToken:
+    Type: String
+    NoEcho: true
+    Description: Telegram Bot Token (via @BotFather)
+  OMDbApiKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: OMDb API key (optional — IMDb/RT ratings)
+  TMDbApiKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: TMDb API key (optional — fallback ratings)
+  WebhookUrl:
+    Type: String
+    Default: ''
+    Description: Telegram webhook URL (API Gateway URL). Empty = set manually after first deploy.
+
+Resources:
+  # ----------------------------------------------------------------
+  # S3 bucket: persistent storage for the normalized cache
+  # ----------------------------------------------------------------
+  CacheBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-cache'
+
+  # ----------------------------------------------------------------
+  # HTTP API (API Gateway) — recebe webhooks do Telegram
+  # ----------------------------------------------------------------
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: prod
+      CorsConfiguration:
+        AllowOrigins: ['*']
+        AllowMethods: ['POST']
+
+  # ----------------------------------------------------------------
+  # BotFunction — handler principal (invocado via webhook)
+  # ----------------------------------------------------------------
+  BotFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/lambda.handler
+      Environment:
+        Variables:
+          TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
+          OMDb_API_KEY: !Ref OMDbApiKey
+          TMDB_API_KEY: !Ref TMDbApiKey
+          S3_BUCKET: !Ref CacheBucket
+          CACHE_KEY: cache.json
+          WEBHOOK_URL: !Ref WebhookUrl
+      Events:
+        Webhook:
+          Type: HttpApi
+          Properties:
+            Path: /webhook
+            Method: POST
+            RestApiId: !Ref HttpApi
+
+  # ----------------------------------------------------------------
+  # WarmFunction — EventBridge cron: pré-carrega o cache diariamente
+  # 03:00 UTC = meia-noite em Maceió (UTC-3, sem DST desde 2019)
+  # ----------------------------------------------------------------
+  WarmFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/lambda.warmHandler
+      Environment:
+        Variables:
+          TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
+          OMDb_API_KEY: !Ref OMDbApiKey
+          TMDB_API_KEY: !Ref TMDbApiKey
+          S3_BUCKET: !Ref CacheBucket
+          CACHE_KEY: cache.json
+      Events:
+        DailyWarm:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 3 * * ? *)
+            Enabled: true
+
+Outputs:
+  WebhookUrl:
+    Description: URL do webhook do Telegram (configurar via API setWebhook)
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/prod/webhook'
+    Export:
+      Name: !Sub '${AWS::StackName}-webhook-url'
+
+  WarmFunctionArn:
+    Description: ARN da função de cache warming (EventBridge cron)
+    Value: !GetAtt WarmFunction.Arn
