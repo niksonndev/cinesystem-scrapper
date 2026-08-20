@@ -191,15 +191,20 @@ docker run -e TELEGRAM_BOT_TOKEN=seu_token maceio-cine-bot
 
 ---
 
-## ☁️ Deploy no Render
+## ☁️ Deploy (AWS SAM — Lambda + API Gateway)
 
-O bot está hospedado no [Render](https://render.com). Veja o
-[guia completo de deploy](docs/deployment.md) para instruções detalhadas.
+O bot está hospedado na **AWS** via **SAM (Serverless Application Model)**,
+usando **Lambda**, **API Gateway** (webhook) e **EventBridge** (cache warming).
 
-Resumo rápido: crie um **Web Service** conectado ao repositório, configure
-`npm ci` como build command e `npm run bot:listen` como start command. O Render
-injectiona `PORT` automaticamente — o código já usa `process.env.PORT` com
-fallback `10000`.
+Veja o [guia completo de deploy](docs/deployment.md) para instruções detalhadas.
+
+```bash
+npm run sam:build
+sam deploy --guided   # primeira vez
+sam deploy            # deployments subsequentes
+```
+
+> 🐳 **Docker:** o `Dockerfile` foi removido — substituído pelo `template.yaml` (SAM).
 
 ---
 
