@@ -216,7 +216,12 @@ export function registerHandlers(bot, cache) {
       await withLoading(bot, chatId, '🔄 Atualizando programação de hoje...', async () => {
         const normalized = await fetchNormalized(null, cinema.id);
         cache.mergeMovies(normalized.movies);
-        cache.setSessions(normalized.date, normalized.sessions, normalized.fetchedAt, cinema.id);
+        await cache.setSessions(
+          normalized.date,
+          normalized.sessions,
+          normalized.fetchedAt,
+          cinema.id,
+        );
         await sendCarouselPage(bot, cache, chatId, 'hoje', 0, cinema);
       });
       console.log(`✅ /atualizar enviado para ${msg.from.username || chatId} (${cinema.name})`);

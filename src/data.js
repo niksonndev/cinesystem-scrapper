@@ -23,7 +23,7 @@ export async function getMoviesForDate(cache, date = null, theaterId = '1162') {
 
   const normalized = await fetchNormalized(date, theaterId);
   cache.mergeMovies(normalized.movies);
-  cache.setSessions(normalized.date, normalized.sessions, normalized.fetchedAt, theaterId);
+  await cache.setSessions(normalized.date, normalized.sessions, normalized.fetchedAt, theaterId);
 
   const movies = denormalize(normalized.movies, normalized.sessions);
   return { movies, date: normalized.date, fromCache: false };
@@ -36,6 +36,6 @@ export async function getUpcomingMovies(cache, theaterId = '1162') {
   }
 
   const result = await fetchUpcoming(theaterId);
-  cache.setUpcoming(result.items, result.fetchedAt, theaterId);
+  await cache.setUpcoming(result.items, result.fetchedAt, theaterId);
   return { items: result.items, fromCache: false };
 }
