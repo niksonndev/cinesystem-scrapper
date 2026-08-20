@@ -106,8 +106,8 @@ Bot:     🎬 PROGRAMAÇÃO
 **1. Clone o repositório**
 
 ```bash
-git clone https://github.com/seu-usuario/cinesystem-scrapper.git
-cd cinesystem-scrapper
+git clone https://github.com/seu-usuario/maceio-cinema-bot.git
+cd maceio-cinema-bot
 ```
 
 **2. Instale as dependências**
@@ -142,22 +142,32 @@ O bot ficará escutando comandos no Telegram. O health check estará em `http://
 
 ## 📂 Arquitetura
 
-```
-src/
-├── api.js        # Cliente da API Ingresso.com (multi-cinema)
-├── normalize.js  # Normalização de filmes, sessões e preços
-├── cache.js      # Cache em JSON com expiração diária por cinema
-├── bot.js        # Bot Telegram (polling + Express + inline keyboards)
-└── index.js      # CLI para consulta rápida via terminal
-```
+O projeto é uma aplicação Node.js com 11 módulos em `src/`. Veja a
+[documentação completa de arquitetura](docs/architecture.md) para detalhes sobre
+fluxos de dados e responsabilidades.
 
-| Módulo | Responsabilidade |
-| --- | --- |
-| `api.js` | Busca sessões e lançamentos por `theaterId` na API do Ingresso.com |
-| `normalize.js` | Transforma dados brutos em estrutura normalizada (filmes + sessões) |
-| `cache.js` | Armazena dados por cinema e data, expira na virada do dia em Maceió |
-| `bot.js` | Gerencia comandos, seleção de cinema, formatação e envio de mensagens |
-| `index.js` | CLI que salva a programação em `data/state.json` |
+| Módulo          | Responsabilidade curta                                           |
+| --------------- | ---------------------------------------------------------------- |
+| `api.js`        | Cliente HTTP (Axios) para a API pública do Ingresso.com          |
+| `normalize.js`  | Separa dados estáticos de filmes dos dinâmicos de sessões        |
+| `cache.js`      | Cache JSON (`data/cache.json`) com expiração diária por cinema     |
+| `data.js`       | Orquestra cache ↔ API ↔ normalize (cache hit antes da API)        |
+| `cinemas.js`    | Definição dos 3 cinemas + preferências por usuário                |
+| `format.js`     | Formatação de mensagens Telegram (Markdown)                       |
+| `ratings.js`    | Notas IMDb/RT (OMDb) + fallback TMDb, cache 24h                   |
+| `keyboards.js`  | Builders de teclados inline do Telegram                           |
+| `handlers.js`   | Handlers de comandos e callbacks                                 |
+| `bot.js`        | Entry point (polling + Express + graceful shutdown)               |
+| `index.js`      | CLI para verificação rápida via terminal                          |
+
+Veja também os documentos técnicos na pasta [`docs/`](./docs):
+
+- [`docs/architecture.md`](docs/architecture.md) — fluxos de dados e módulos
+- [`docs/data-model.md`](docs/data-model.md) — estrutura completa de `cache.json`
+- [`docs/caching.md`](docs/caching.md) — regras de expiração e TTL
+- [`docs/api-reference.md`](docs/api-reference.md) — endpoints e contratos
+- [`docs/deployment.md`](docs/deployment.md) — deploy no Render
+- [`docs/development.md`](docs/development.md) — como rodar localmente
 
 ---
 
@@ -183,13 +193,13 @@ docker run -e TELEGRAM_BOT_TOKEN=seu_token maceio-cine-bot
 
 ## ☁️ Deploy no Render
 
-1. Crie um **Web Service** conectado ao repositório.
-2. **Build Command:** `npm ci`
-3. **Start Command:** `npm run bot:listen`
-4. **Environment Variables:** configure `TELEGRAM_BOT_TOKEN` (o Render injeta `PORT` automaticamente).
-5. **Health Check URL:** o Render usa a URL do serviço (ex.: `https://cinesystem-scrapper.onrender.com/`) para verificar se o bot está vivo.
+O bot está hospedado no [Render](https://render.com). Veja o
+[guia completo de deploy](docs/deployment.md) para instruções detalhadas.
 
-O projeto usa **porta dinâmica** (`process.env.PORT` com fallback `10000`) e servidor em **0.0.0.0**, essencial para o Render. Logs de **Health Check** e **Graceful Shutdown** (SIGTERM/SIGINT) ajudam a monitorar a estabilidade do container.
+Resumo rápido: crie um **Web Service** conectado ao repositório, configure
+`npm ci` como build command e `npm run bot:listen` como start command. O Render
+injectiona `PORT` automaticamente — o código já usa `process.env.PORT` com
+fallback `10000`.
 
 ---
 
