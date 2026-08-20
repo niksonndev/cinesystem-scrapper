@@ -15,8 +15,23 @@
  */
 
 import fs from 'fs';
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 
 const CACHE_FILE = 'data/cache.json';
+const USE_S3 = !!process.env.S3_BUCKET;
+let s3;
+if (USE_S3) {
+  s3 = new S3Client({ region: process.env.AWS_REGION });
+}
+
+/** Converte um stream do S3 em string (Node 20-compatible). */
+async function streamToString(stream) {
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
 
 class NormalizedCache {
   constructor() {
@@ -39,23 +54,41 @@ class NormalizedCache {
     });
   }
 
-  load() {
+  async load() {
     try {
-      if (fs.existsSync(CACHE_FILE)) {
+      if (USE_S3) {
+        const res = await s3.send(
+          new GetObjectCommand({
+            Bucket: process.env.S3_BUCKET,
+            Key: process.env.CACHE_KEY || 'cache.json',
+          }),
+        );
+        this.data = JSON.parse(await streamToString(res.Body));
+      } else if (fs.existsSync(CACHE_FILE)) {
         this.data = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
       }
     } catch (err) {
-      console.warn('⚠️  Cache corrompido, reinicializando:', err.message);
       this.data = { movies: {}, sessions: {}, upcoming: {}, moviesUpdatedAt: null };
+      console.warn('⚠️  Cache corrompido, reinicializando:', err.message);
     }
   }
 
-  save() {
+  async save() {
     try {
-      if (!fs.existsSync('data')) {
-        fs.mkdirSync('data', { recursive: true });
+      if (USE_S3) {
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: process.env.S3_BUCKET,
+            Key: process.env.CACHE_KEY || 'cache.json',
+            Body: JSON.stringify(this.data, null, 2),
+          }),
+        );
+      } else {
+        if (!fs.existsSync('data')) {
+          fs.mkdirSync('data', { recursive: true });
+        }
+        fs.writeFileSync(CACHE_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
       }
-      fs.writeFileSync(CACHE_FILE, JSON.stringify(this.data, null, 2), 'utf-8');
     } catch (err) {
       console.error('❌ Erro ao salvar cache:', err.message);
     }
@@ -84,11 +117,11 @@ class NormalizedCache {
   /**
    * Salva sessões dinâmicas para uma data e teatro específicos.
    */
-  setSessions(date, sessions, fetchedAt, theaterId = '1162') {
+  async setSessions(date, sessions, fetchedAt, theaterId = '1162') {
     if (!this.data.sessions[theaterId]) this.data.sessions[theaterId] = {};
     this.data.sessions[theaterId][date] = { fetchedAt, items: sessions };
     this.purgeOldSessions();
-    this.save();
+    await this.save();
     console.log(`💾 ${sessions.length} sessão(ões) salva(s) para ${date} (teatro ${theaterId})`);
   }
 
@@ -133,12 +166,12 @@ class NormalizedCache {
   /**
    * Salva próximos lançamentos no cache para um teatro específico.
    */
-  setUpcoming(items, fetchedAt, theaterId = '1162') {
+  async setUpcoming(items, fetchedAt, theaterId = '1162') {
     if (!this.data.upcoming || typeof this.data.upcoming !== 'object') {
       this.data.upcoming = {};
     }
     this.data.upcoming[theaterId] = { fetchedAt, items };
-    this.save();
+    await this.save();
     console.log(`💾 ${items.length} lançamento(s) salvo(s) no cache (teatro ${theaterId})`);
   }
 
