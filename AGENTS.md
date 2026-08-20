@@ -10,7 +10,7 @@
 
 | Script | Command | Purpose |
 |---|---|---|
-| `npm start` | `node src/index.js` | CLI — fetches today's schedule and writes to `data/state.json`. No tokens needed. |
+| `npm start` | `node src/index.js` | CLI — validates the data pipeline (fetch + console output). No tokens needed. |
 | `npm run bot:listen` | `node src/bot.js` | Telegram bot + Express health check server. **Requires** `TELEGRAM_BOT_TOKEN`. |
 
 ### Environment variables
@@ -27,7 +27,14 @@ Use `npm start` to exercise the core data pipeline (API fetch, normalization, ca
 
 ### Lint / Test / Build
 
-This project does **not** currently have lint, test, or build scripts defined in `package.json`. There are no automated tests. To verify correctness, run `npm start` and check the output.
+The project includes ESLint and Prettier for code quality:
+
+- `npm run lint` — lint `src/` with ESLint
+- `npm run lint:fix` — lint + auto-fix
+- `npm run format` — format `src/` with Prettier
+- `npm run format:check` — verify formatting
+
+There are **no automated tests**. To verify correctness, run `npm start` and check the output.
 
 ### Verifying the bot without Telegram login
 
