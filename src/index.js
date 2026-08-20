@@ -11,15 +11,8 @@
  *   node src/index.js 2026-02-23      → data específica (YYYY-MM-DD)
  */
 
-import fs from 'fs/promises';
 import { fetchNormalized } from './api.js';
 import { denormalize } from './normalize.js';
-
-async function saveState(data) {
-  const stateFile = 'data/state.json';
-  await fs.mkdir('data', { recursive: true });
-  await fs.writeFile(stateFile, JSON.stringify(data, null, 2));
-}
 
 async function main() {
   const date = process.argv[2] || null;
@@ -33,10 +26,7 @@ async function main() {
 
   const normalized = await fetchNormalized(date);
   const movies = denormalize(normalized.movies, normalized.sessions);
-  const scrapedAt = normalized.fetchedAt;
 
-  await saveState({ movies, scrapedAt });
-  console.log('✅ Resultado salvo em data/state.json');
   console.log(`📽️  Filmes: ${movies.length}`);
 
   if (movies.length === 0) {
