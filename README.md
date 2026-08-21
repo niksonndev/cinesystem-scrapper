@@ -182,16 +182,7 @@ Veja também os documentos técnicos na pasta [`docs/`](./docs):
 
 ---
 
-## 🐳 Docker
-
-```bash
-docker build -t maceio-cine-bot .
-docker run -e TELEGRAM_BOT_TOKEN=seu_token maceio-cine-bot
-```
-
 ---
-
-## ☁️ Deploy (AWS SAM — Lambda + API Gateway)
 
 O bot está hospedado na **AWS** via **SAM (Serverless Application Model)**,
 usando **Lambda**, **API Gateway** (webhook) e **EventBridge** (cache warming).
@@ -200,11 +191,8 @@ Veja o [guia completo de deploy](docs/deployment.md) para instruções detalhada
 
 ```bash
 npm run sam:build
-sam deploy --guided   # primeira vez
-sam deploy            # deployments subsequentes
+sam deploy            # primeira vez (modo guiado) ou subsequente
 ```
-
-> 🐳 **Docker:** o `Dockerfile` foi removido — substituído pelo `template.yaml` (SAM).
 
 ---
 

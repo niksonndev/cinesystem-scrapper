@@ -169,4 +169,6 @@ Estrutura temporária em `src/cinemas.js`:
 | `PORT`              | Não         | `10000`   | Porta do Express (health check).             |
 | `OMDb_API_KEY`      | Não         | —         | Busca IMDb/RT.                               |
 | `TMDB_API_KEY`      | Não         | —         | Fallback TMDb quando OMDb falha.            |
-| `RENDER_EXTERNAL_URL` | Não       | —         | URL do serviço no Render (para auto-ping).  |
+| `S3_BUCKET`         | Não (Lambda) | —    | Bucket S3 para cache persistente (prod).     |
+| `CACHE_KEY`         | Não (Lambda) | `cache.json` | Chave do S3 para o arquivo de cache.     |
+| `AWS_REGION`        | Não (Lambda) | —    | Região AWS para o S3Client.                  |

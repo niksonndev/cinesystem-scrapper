@@ -6,9 +6,9 @@
  * O Telegram envia POSTs para a URL do API Gateway → esta Lambda processa
  * o update via `bot.processUpdate()`.
  *
- * Handlers exportados:
- *   - handler()     → invocado pelo API Gateway (webhook)
- *   - warmHandler() → invocado pelo EventBridge (cron diário, cache warming)
+  * Handlers exportados:
+ *   - handler()       → invocado pelo API Gateway (webhook)
+ *   - fetchHandler()  → invocado pelo EventBridge (cron diário, fetch + S3 cache update)
  *
  * Uso:
  *   sam build && sam deploy --guided
@@ -80,15 +80,15 @@ export async function handler(event) {
 }
 
 /**
- * Handler de cache warming — invocado pelo EventBridge (cron diário).
+ * Handler de fetch + cache update — invocado pelo EventBridge (cron diário).
  *
- * Pré-carrega sessões e lançamentos para todos os teatros suportados,
- * salvando no S3 (ou data/cache.json localmente).
- * Evita cold-start fetch e garante dados frescos à meia-noite em Maceió.
+ * Busca sessões e lançamentos para todos os teatros suportados e persiste
+ * no S3 (ou data/cache.json localmente). Evita cold-start fetch na interação
+ * do usuário e garante dados frescos à meia-noite em Maceió.
  *
  * @returns {object} Resposta 200
  */
-export async function warmHandler() {
+export async function fetchHandler() {
   await initialize();
 
   const THEATERS = ['1162', '1230', '924']; // Cinesystem, Centerplex, Kinoplex

@@ -35,7 +35,7 @@ app.get('/', (_req, res) => {
     heapTotal: (mem.heapTotal / 1024 / 1024).toFixed(2),
     rss: (mem.rss / 1024 / 1024).toFixed(2),
   };
-  console.log('📡 Health check recebido (Render)', memMB);
+     console.log('📡 Health check recebido', memMB);
   res.json({
     status: '✅ Bot está online!',
     timestamp: new Date().toISOString(),
@@ -117,24 +117,10 @@ bot.on('polling', () => {
 
   bot.startPolling({ restart: true });
 
-  server = app.listen(PORT, '0.0.0.0', () => {
+    server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Bot subiu na porta ${PORT} (host 0.0.0.0)`);
     console.log(`📡 Health check: http://0.0.0.0:${PORT}/`);
   });
-
-  const selfUrl = process.env.RENDER_EXTERNAL_URL;
-  if (selfUrl) {
-    const PING_INTERVAL_MS = 10 * 60 * 1000;
-    setInterval(async () => {
-      try {
-        const res = await fetch(selfUrl);
-        console.log(`🔄 Auto-ping ${selfUrl} → ${res.status}`);
-      } catch (err) {
-        console.error('❌ Auto-ping falhou:', err.message);
-      }
-    }, PING_INTERVAL_MS);
-    console.log(`⏱️ Auto-ping ativo a cada 10 min → ${selfUrl}`);
-  }
 
   console.log('🚀 Bot iniciado em modo polling...');
   console.log('Aguardando mensagens. Envie /start para começar.');

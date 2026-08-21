@@ -7,13 +7,16 @@
 
 | Tipo              | Onde               | Persistido? | Expira?                                   |
 | ----------------- | ------------------ | ----------- | ----------------------------------------- |
-| Filmes estáticos  | `data/cache.json`  | ✅ Sim      | Nunca expira (atualizado sob demanda)     |
-| Sessões           | `data/cache.json`  | ✅ Sim      | Expira à meia-noite (fuso `America/Maceio`) |
-| Lançamentos       | `data/cache.json`  | ✅ Sim      | Expira à meia-noite (fuso `America/Maceio`) |
+| Filmes estáticos  | S3 (prod) / JSON   | ✅ Sim      | Nunca expira (atualizado sob demanda)     |
+| Sessões           | S3 (prod) / JSON   | ✅ Sim      | Expira à meia-noite (fuso `America/Maceio`) |
+| Lançamentos       | S3 (prod) / JSON   | ✅ Sim      | Expira à meia-noite (fuso `America/Maceio`) |
 | Ratings           | Map em memória     | ❌ Não      | 24h (`CACHE_TTL_MS`)                      |
 | Preferências      | Map em memória     | ❌ Não      | Perdido em reinício                       |
 
-## Arquivo: `data/cache.json`
+> Em produção (AWS Lambda), `S3_BUCKET` e `CACHE_KEY` são injetadas via
+> `template.yaml`. Localmente (modo dev), o cache recai para `data/cache.json`.
+
+## Arquivo: `cache.json` (S3 em prod / `data/cache.json` em dev)
 
 ```
 data/cache.json

@@ -76,15 +76,15 @@ Resources:
             Method: POST
             RestApiId: !Ref HttpApi
 
-  # ----------------------------------------------------------------
-  # WarmFunction — EventBridge cron: pré-carrega o cache diariamente
+    # ----------------------------------------------------------------
+  # FetchFunction — EventBridge cron: atualiza o cache no S3 diariamente
   # 03:00 UTC = meia-noite em Maceió (UTC-3, sem DST desde 2019)
   # ----------------------------------------------------------------
-  WarmFunction:
+  FetchFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: .
-      Handler: src/lambda.warmHandler
+      Handler: src/lambda.fetchHandler
       Environment:
         Variables:
           TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
@@ -106,6 +106,6 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-webhook-url'
 
-  WarmFunctionArn:
-    Description: ARN da função de cache warming (EventBridge cron)
-    Value: !GetAtt WarmFunction.Arn
+    FetchFunctionArn:
+    Description: ARN da função de fetch + S3 cache update (EventBridge cron)
+    Value: !GetAtt FetchFunction.Arn

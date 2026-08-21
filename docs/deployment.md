@@ -78,8 +78,8 @@ sam build
 # Invocar handler de webhook com evento de teste
 sam local invoke "BotFunction" -e events/webhook-event.json
 
-# Invocar cache warming localmente
-sam local invoke "WarmFunction"
+# Invocar fetch + S3 cache update localmente
+sam local invoke "FetchFunction"
 
 # Simular API Gateway localmente (HTTP API)
 sam local start-api
@@ -103,7 +103,7 @@ confirm_changeset = false
 > Esta seção está arquivada. O deploy primário agora é via **AWS SAM** (acima).
 > Mantida apenas como referência histórica.
 
-## Visão geral
+## Visão geral (legado)
 
 | Item              | Detalhe                                                          |
 | ----------------- | ---------------------------------------------------------------- |
@@ -111,72 +111,15 @@ confirm_changeset = false
 | Tipo de serviço   | Web Service (com health check HTTP)                              |
 | Start Command     | `npm run bot:listen` (`node src/bot.js`)                         |
 | Build Command     | `npm ci`                                                         |
-| Runtime           | Node.js (imagem `node:20-slim`, via Dockerfile)                  |
+| Runtime           | Node.js (imagem `node:20-slim`)                                  |
+| Cache             | `data/cache.json` (local ao container — perdido em reinício)     |
 
-## 🟢 Status da produção
-
-| Item             | Detalhe                                                        |
-| ---------------- | -------------------------------------------------------------- |
-| URL do serviço   | https://cinesystem-scrapper.onrender.com                       |
-| Health check     | `GET https://cinesystem-scrapper.onrender.com/`                |
-| Porta            | Dinâmica via `process.env.PORT` (fallback `10000`)             |
-
-### Resposta do health check
-
-```json
-{
-  "status": "✅ Bot está online!",
-  "timestamp": "2026-08-19T10:30:00.000Z",
-  "memory": { "heapUsed": "45.23", "heapTotal": "67.89", "rss": "89.12" }
-}
-```
-
-## Como configurar
-
-### 1. Crie um Web Service
-
-Conecte ao repositório GitHub e configure:
-
-- **Build Command:** `npm ci`
-- **Start Command:** `npm run bot:listen`
-
-### 2. Variáveis de ambiente
-
-| Variável             | Obrigatória | Descrição                              |
-| -------------------- | ----------- | -------------------------------------- |
-| `TELEGRAM_BOT_TOKEN` | ✅ Sim      | Token do bot obtido via [@BotFather](https://t.me/BotFather) |
-| `OMDb_API_KEY`       | Não         | Notas IMDb/RT                            |
-| `TMDB_API_KEY`       | Não         | Fallback TMDb                            |
-| `PORT`               | Não         | Injetado automaticamente pelo Render   |
-| `RENDER_EXTERNAL_URL`| Não         | Injetado pelo Render (usado para auto-ping) |
-
-> ⚠️ O Render injeta `PORT` e `RENDER_EXTERNAL_URL` automaticamente — **não** defina `PORT`
-> manualmente nas variáveis do serviço.
-
-### 3. Health check
-
-O Render usa a URL raiz (`https://cinesystem-scrapper.onrender.com/`) para verificar
-se o container está saudável. O servidor Express escuta em `0.0.0.0` na porta `PORT`.
-
-## Auto-ping (keep-alive)
-
-Para evitar que o serviço grátis do Render "desligue" por inatividade,
-o bot faz um self-ping a cada **10 minutos**:
-
-```js
-// src/bot.js
-const selfUrl = process.env.RENDER_EXTERNAL_URL;
-if (selfUrl) {
-  setInterval(async () => {
-    const res = await fetch(selfUrl);
-    console.log(`🔄 Auto-ping ${selfUrl} → ${res.status}`);
-  }, 10 * 60 * 1000);
-}
-```
+> ⚠️ Em produção, o deploy primário agora é **AWS SAM** (acima). O cache
+> local `data/cache.json` não é persistente em containers epêmeros.
 
 ## Graceful shutdown (SIGTERM/SIGINT)
 
-O bot escuta sinais de desligamento para encerrar limpo:
+O bot escuta sinais de desligamento para encerrar limpo (modo polling local):
 
 ```js
 process.on('SIGINT', () => shutdown('SIGINT'));
@@ -196,24 +139,15 @@ curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMe"
 # Comandos registrados (devem ser 4)
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getMyCommands"
 
-# Polling mode (webhook URL deve estar vazia)
+# Webhook info (para Lambda: deve ter a URL do API Gateway; para polling: vazia)
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 
-# Health check
-curl -s https://cinesystem-scrapper.onrender.com/
+# Health check (modo local)
+curl -s http://localhost:10000/
 ```
-
-## Docker
-
-```bash
-docker build -t maceio-cine-bot .
-docker run -e TELEGRAM_BOT_TOKEN=seu_token maceio-cine-bot
-```
-
-O `Dockerfile` usa `node:20-slim` e roda `npm run bot:listen` por padrão.
 
 ## Monitoramento de logs
 
-- Health check e graceful shutdown logam para `stdout` (visíveis no painel do Render).
-- Erros de polling são tratados com retry exponencial (até 5 tentativas) —
-  útil para detectar conflito de instância (`409 Conflict`).
+- Health check e graceful shutdown logam para `stdout`.
+- Erros de polling (modo local) são tratados com retry exponencial (até 5 tentativas) —
+  útil para debug de instâncias concorrentes.

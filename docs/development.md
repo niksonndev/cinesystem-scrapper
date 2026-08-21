@@ -16,7 +16,7 @@ git clone https://github.com/seu-usuario/maceio-cinema-bot.git
 cd maceio-cinema-bot
 
 npm install
-# ou, para instalação determinística (como no Render):
+# ou, para instalação determinística:
 npm ci
 ```
 
@@ -106,14 +106,15 @@ maceio-cinema-bot/
 ├── src/                    # Código fonte (ES Modules)
 │   ├── api.js              # Cliente da API Ingresso.com
 │   ├── normalize.js        # Normalização / desnormalização
-│   ├── cache.js            # Cache JSON persistido
+│   ├── cache.js            # Cache persistido (S3 em prod / JSON local em dev)
 │   ├── data.js             # Camada de acesso a dados (cache ↔ API)
 │   ├── cinemas.js          # Definição de cinemas + preferências
 │   ├── format.js           # Formatação de mensagens Telegram
 │   ├── ratings.js          # Busca de notas (OMDb/TMDb)
 │   ├── keyboards.js        # Teclados inline do Telegram
 │   ├── handlers.js         # Handlers de comandos e callbacks
-│   ├── bot.js              # Entry point do bot (polling + Express)
+│   ├── bot.js              # Entry point secundário (polling local + Express health)
+│   ├── lambda.js           # Entry point AWS Lambda (webhook + fetch handler)
 │   └── index.js            # CLI (verificação manual)
 ├── docs/                   # Documentação técnica
 │   ├── architecture.md
@@ -123,10 +124,8 @@ maceio-cinema-bot/
 │   ├── deployment.md
 │   └── development.md
 ├── data/                   # Diretório criado em runtime (não commitado)
-│   └── cache.json          # Cache persistido
-├── .env.example            # Template de variáveis
-├── Dockerfile
-├── eslint.config.js
+├── .env.example            # Template de variáveis de ambiente
+├── eslint.config.js        # Configuração ESLint + Prettier
 ├── package.json
 └── README.md               # Visão geral para usuários
 ```
@@ -148,7 +147,8 @@ npm run bot:listen
 
 ## 9. Observações
 
-- **Nenhum banco de dados** — o estado é mantido em `data/cache.json` + Maps em memória.
-- O diretório `data/` é criado automaticamente na primeira execução.
+- **Nenhum banco de dados** — o estado é mantido em S3 (produção, via Lambda) ou `data/cache.json` (desenvolvimento local) + Maps em memória.
+- Em ambiente AWS, o cache é persistido no S3 via `FetchFunction` (cron diário do EventBridge).
+- O diretório `data/` é criado automaticamente na primeira execução (modo local).
 - O cache expira na virada do dia (fuso `America/Maceio`) — rode `npm start` após
   meia-noite para renovar os dados.
